@@ -1,3 +1,22 @@
+> **This file is out of date. `initrd/NOTES.md` is authoritative.**
+>
+> It was written before the payload was split into four variants and before
+> the artifacts were rebuilt on 2026-09-20 for the disk test and the
+> real-interface change. Three things in it are wrong:
+>
+> - The artifact table names `initrd/initrd.cpio.gz` as 213 804 065 bytes.
+>   The file that ships is 205 016 731 bytes, so the SHA-256 beside it
+>   describes an artifact that no longer exists.
+> - It gives a single RAM floor of 1344 MiB. That is the *recommended* size
+>   for the `all` variant, not a floor and not universal. The measured
+>   floors are 560 (`docker`), 1024 (`k3s`), 1248 (`all`) and 1728 (`full`)
+>   MiB; see "RAM: the floor, and why the old numbers were wrong" in
+>   `initrd/NOTES.md`.
+> - It describes one initrd. There are four: `docker`, `k3s`, `all`, `full`.
+>
+> Kept rather than deleted because the prose around those numbers is still
+> accurate and `REPLICATION.md` links into it.
+
 # riscv64 container test payload
 
 A kernel and an initrd that boot straight into two tests, print greppable
