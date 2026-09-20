@@ -1,0 +1,329 @@
+
+OpenSBI v1.6
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name               : riscv-virtio,qemu
+Platform Features           : medeleg
+Platform HART Count         : 4
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 10000000Hz
+Platform Console Device     : uart8250
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : syscon-reboot
+Platform Shutdown Device    : syscon-poweroff
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 361 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 105 KB
+Firmware Heap Offset        : 0x4e000
+Firmware Heap Size          : 49 KB (total), 3 KB (reserved), 13 KB (used), 32 KB (free)
+Firmware Scratch Size       : 4096 B (total), 440 B (used), 3656 B (free)
+Runtime SBI Version         : 2.0
+Standard SBI Extensions     : ipi,pmu,srst,hsm,rfnc,time,base,legacy,dbcn
+Experimental SBI Extensions : sse,fwft,dbtr
+
+Domain0 Name                : root
+Domain0 Boot HART           : 1
+Domain0 HARTs               : 0*,1*,2*,3*
+Domain0 Region00            : 0x0000000000100000-0x0000000000100fff M: (I,R,W) S/U: (R,W)
+Domain0 Region01            : 0x0000000010000000-0x0000000010000fff M: (I,R,W) S/U: (R,W)
+Domain0 Region02            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
+Domain0 Region03            : 0x0000000080040000-0x000000008005ffff M: (R,W) S/U: ()
+Domain0 Region04            : 0x0000000080000000-0x000000008003ffff M: (R,X) S/U: ()
+Domain0 Region05            : 0x000000000c400000-0x000000000c5fffff M: (I,R,W) S/U: (R,W)
+Domain0 Region06            : 0x000000000c000000-0x000000000c3fffff M: (I,R,W) S/U: (R,W)
+Domain0 Region07            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x0000000080200000
+Domain0 Next Arg1           : 0x00000000bbe00000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+
+Boot HART ID                : 1
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv64imafdch
+Boot HART ISA Extensions    : sstc,zicntr,zihpm,zicboz,zicbom,sdtrig,svadu
+Boot HART PMP Count         : 16
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 54
+Boot HART MHPM Info         : 16 (0x0007fff8)
+Boot HART Debug Triggers    : 2 triggers
+Boot HART MIDELEG           : 0x0000000000001666
+Boot HART MEDELEG           : 0x0000000000f4b509
+[    0.000000] Booting Linux on hartid 1
+[    0.000000] Linux version 7.2.6 (@3b2d2172f0a8) (riscv64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0, GNU ld (GNU Binutils for Debian) 2.44) #1 SMP PREEMPT Sat Sep 19 20:58:08 UTC 2026
+[    0.000000] random: crng init done
+[    0.000000] Machine model: riscv-virtio,qemu
+[    0.000000] SBI specification v2.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10006
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] efi: UEFI not found.
+[    0.000000] OF: reserved mem: 0x0000000080000000..0x000000008003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[    0.000000] OF: reserved mem: 0x0000000080040000..0x000000008005ffff (128 KiB) nomap non-reusable mmode_resv0@80040000
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: base ISA extensions acdfhim
+[    0.000000] riscv: ELF capabilities acdfim
+[    0.000000] Queued spinlock using Ziccrse: enabled
+[    0.000000] Zone ranges:
+[    0.000000]   DMA32    [mem 0x0000000080000000-0x00000000bbffffff]
+[    0.000000]   Normal   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080000000-0x000000008005ffff]
+[    0.000000]   node   0: [mem 0x0000000080060000-0x00000000bbffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080000000-0x00000000bbffffff]
+[    0.000000] On node 0, zone DMA32: 16384 pages in unavailable ranges
+[    0.000000] percpu: Embedded 31 pages/cpu s88216 r8192 d30568 u126976
+[    0.000000] Kernel command line: console=ttyS0 test=k3s k3s.timeout=5400 k3s.podtimeout=2400 progress=120
+[    0.000000] Unknown kernel command line parameters "test=k3s progress=120", will be passed to user space.
+[    0.000000] printk: log buffer data + meta data: 131072 + 458752 = 589824 bytes
+[    0.000000] Dentry cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 65536 (order: 7, 524288 bytes, linear)
+[    0.000000] software IO TLB: SWIOTLB bounce buffer size adjusted to 0MB
+[    0.000000] software IO TLB: area num 4.
+[    0.000000] software IO TLB: mapped [mem 0x00000000b9c80000-0x00000000b9d80000] (1MB)
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 245760
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=4, Nodes=1
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU event tracing is enabled.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=256 to nr_cpu_ids=4.
+[    0.000000] 	Trampoline variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=4
+[    0.000000] RCU Tasks: Setting shift to 2 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=4.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 64 local interrupts mapped
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.000093] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[    0.000263] riscv-timer: Timer interrupt in S-mode is available via sstc extension
+[    0.011592] Console: colour dummy device 80x25
+[    0.014853] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=40000)
+[    0.015006] pid_max: default: 32768 minimum: 301
+[    0.023189] Mount-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.023244] Mountpoint-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.032614] VFS: Finished mounting rootfs on nullfs
+[    0.070203] riscv: ELF compat mode supported
+[    0.070511] ASID allocator using 16 bits (65536 entries)
+[    0.073888] rcu: Hierarchical SRCU implementation.
+[    0.073939] rcu: 	Max phase no-delay instances is 1000.
+[    0.075547] Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level
+[    0.078423] EFI services will not be available.
+[    0.079614] smp: Bringing up secondary CPUs ...
+[    0.096018] smp: Brought up 1 node, 4 CPUs
+[    0.105877] Memory: 769144K/983040K available (13250K kernel code, 6056K rwdata, 6144K rodata, 2470K init, 506K bss, 209692K reserved, 0K cma-reserved)
+[    0.117369] devtmpfs: initialized
+[    0.131428] posixtimers hash table entries: 2048 (order: 3, 32768 bytes, linear)
+[    0.131732] futex hash table entries: 1024 (65536 bytes on 1 NUMA nodes, total 64 KiB, linear).
+[    0.144272] DMI: not present or invalid.
+[    0.146709] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.151174] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.151596] audit: initializing netlink subsys (disabled)
+[    0.154673] audit: type=2000 audit(0.140:1): state=initialized audit_enabled=0 res=1
+[    0.157639] thermal_sys: Registered thermal governor 'step_wise'
+[    0.158682] cpuidle: using governor menu
+[    0.189880] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    0.189929] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[    0.195121] ACPI: Interpreter disabled.
+[    0.195844] iommu: Default domain type: Translated
+[    0.195885] iommu: DMA domain TLB invalidation policy: strict mode
+[    0.200996] SCSI subsystem initialized
+[    0.203721] usbcore: registered new interface driver usbfs
+[    0.204076] usbcore: registered new interface driver hub
+[    0.204238] usbcore: registered new device driver usb
+[    0.207912] Advanced Linux Sound Architecture Driver Initialized.
+[    0.227736] vgaarb: loaded
+[    0.232350] clocksource: Switched to clocksource riscv_clocksource
+[    0.242045] pnp: PnP ACPI: disabled
+[    0.296228] NET: Registered PF_INET protocol family
+[    0.297900] IP idents hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    0.308470] tcp_listen_portaddr_hash hash table entries: 512 (order: 1, 8192 bytes, linear)
+[    0.308571] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    0.308657] TCP established hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[    0.308898] TCP bind hash table entries: 8192 (order: 6, 262144 bytes, linear)
+[    0.309151] TCP: Hash tables configured (established 8192 bind 8192)
+[    0.310420] UDP hash table entries: 512 (order: 3, 32768 bytes, linear)
+[    0.312557] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    0.317859] RPC: Registered named UNIX socket transport module.
+[    0.317924] RPC: Registered udp transport module.
+[    0.317936] RPC: Registered tcp transport module.
+[    0.317947] RPC: Registered tcp-with-tls transport module.
+[    0.317956] RPC: Registered tcp NFSv4.1 backchannel transport module.
+[    0.336168] cpu0: scalar unaligned word access speed is 7.47x byte access speed (fast)
+[    0.336182] cpu2: scalar unaligned word access speed is 7.58x byte access speed (fast)
+[    0.336161] cpu3: scalar unaligned word access speed is 7.47x byte access speed (fast)
+[    0.336168] cpu1: scalar unaligned word access speed is 7.87x byte access speed (fast)
+[    0.338030] PCI: CLS 0 bytes, default 64
+[    0.344778] workingset: timestamp_bits=46 (anon: 41) max_order=18 bucket_order=0 (anon: 0)
+[    0.349258] Unpacking initramfs...
+[    0.353386] NFS: Registering the id_resolver key type
+[    0.353900] Key type id_resolver registered
+[    0.353951] Key type id_legacy registered
+[    0.354505] nfs4filelayout_init: NFSv4 File Layout Driver Registering...
+[    0.354641] nfs4flexfilelayout_init: NFSv4 Flexfile Layout Driver Registering...
+[    0.356285] 9p: Installing v9fs 9p2000 file system support
+[    0.360265] NET: Registered PF_ALG protocol family
+[    0.360714] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 244)
+[    0.361994] io scheduler mq-deadline registered
+[    0.362129] io scheduler kyber registered
+[    0.362580] io scheduler bfq registered
+[    0.378892] riscv-plic: plic@c000000: mapped 96 interrupts with 4 handlers for 8 contexts.
+[    0.387304] pci-host-generic 30000000.pci: host bridge /soc/pci@30000000 ranges:
+[    0.388793] pci-host-generic 30000000.pci:       IO 0x0003000000..0x000300ffff -> 0x0000000000
+[    0.389842] pci-host-generic 30000000.pci:      MEM 0x0040000000..0x007fffffff -> 0x0040000000
+[    0.389926] pci-host-generic 30000000.pci:      MEM 0x0400000000..0x07ffffffff -> 0x0400000000
+[    0.390796] pci-host-generic 30000000.pci: Memory resource size exceeds max for 32 bits
+[    0.391448] pci-host-generic 30000000.pci: ECAM at [mem 0x30000000-0x3fffffff] for [bus 00-ff]
+[    0.393941] pci-host-generic 30000000.pci: PCI host bridge to bus 0000:00
+[    0.394286] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    0.394373] pci_bus 0000:00: root bus resource [io  0x0000-0xffff]
+[    0.394431] pci_bus 0000:00: root bus resource [mem 0x40000000-0x7fffffff]
+[    0.394445] pci_bus 0000:00: root bus resource [mem 0x400000000-0x7ffffffff]
+[    0.396729] pci 0000:00:00.0: [1b36:0008] type 00 class 0x060000 conventional PCI endpoint
+[    0.405274] pci_bus 0000:00: resource 4 [io  0x0000-0xffff]
+[    0.405330] pci_bus 0000:00: resource 5 [mem 0x40000000-0x7fffffff]
+[    0.405348] pci_bus 0000:00: resource 6 [mem 0x400000000-0x7ffffffff]
+[    0.593755] Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled
+[    0.622252] printk: legacy console [ttyS0] disabled
+[    0.629474] 10000000.serial: ttyS0 at MMIO 0x10000000 (irq = 12, base_baud = 230400) is a 16550A
+[    0.633030] printk: legacy console [ttyS0] enabled
+[    0.715438] loop: module loaded
+[    0.729736] e1000e: Intel(R) PRO/1000 Network Driver
+[    0.730021] e1000e: Copyright(c) 1999 - 2015 Intel Corporation.
+[    0.734674] usbcore: registered new interface driver uas
+[    0.735307] usbcore: registered new interface driver usb-storage
+[    0.737751] mousedev: PS/2 mouse device common for all mice
+[    0.744518] goldfish_rtc 101000.rtc: registered as rtc0
+[    0.745493] goldfish_rtc 101000.rtc: setting system clock to 2026-09-20T09:10:24 UTC (1789895424)
+[    0.759232] usbcore: registered new interface driver usbhid
+[    0.759671] usbhid: USB HID core driver
+[    0.761327] riscv-pmu-sbi: SBI PMU extension is available
+[    0.764618] riscv-pmu-sbi: 16 firmware and 18 hardware counters
+[    0.765881] riscv-pmu-sbi: Perf sampling/filtering is not supported as sscof extension is not available
+[    0.786579] IPVS: Registered protocols (TCP, UDP)
+[    0.787027] IPVS: Connection hash table configured (size=4096, memory=32Kbytes)
+[    0.790945] IPVS: ipvs loaded.
+[    0.791282] IPVS: [rr] scheduler registered.
+[    0.794013] Initializing XFRM netlink socket
+[    0.794909] NET: Registered PF_INET6 protocol family
+[    0.809285] Segment Routing with IPv6
+[    0.809820] In-situ OAM (IOAM) with IPv6
+[    0.813257] NET: Registered PF_PACKET protocol family
+[    0.814696] Bridge firewalling registered
+[    0.817662] 9pnet: Installing 9P2000 support
+[    0.818412] Key type dns_resolver registered
+[    1.780898] clk: Disabling unused clocks
+[    1.781501] PM: genpd: Disabling unused power domains
+[    1.781875] ALSA device list:
+[    1.782585]   No soundcards found.
+[    5.834773] Freeing initrd memory: 142652K
+[    5.948277] Freeing unused kernel image (initmem) memory: 2468K
+[    5.949619] Run /init as init process
+PAYLOAD_START
+[     6.40] rootfs (initramfs): rootfs 377M total, 326M used, 51M free; MemTotal 896M
+[     7.42] payload: image intact (variant k3s, 1540 files, 340458899 bytes, 20 named files, checked in 1s)
+[     7.47] stage 1: initramfs rootfs, moving the root to tmpfs (size=90%)
+[     7.49] free -m (stage 1 start):
+               total        used        free      shared  buff/cache   available
+Mem:             896         370         530         326         328         526
+Swap:              0           0           0
+[    11.51] stage 1: switching root
+[    12.54] cgroups: available:cpuset cpu io memory hugetlb pids 
+[    12.58] cgroups: delegated: cpuset cpu io memory hugetlb pids
+[    12.72] stage 2: root is tmpfs, test=k3s
+[    12.85] rootfs (real root): tmpfs 807M total, 326M used, 480M free; MemTotal 896M
+[    12.87] payload: image variant k3s (docker=0 k3s=1)
+[    13.33] net: lo 127.0.0.1/8 dummy0 10.0.2.15/24 
+[    13.39] net: default route: default via 10.0.2.2 dev dummy0 onlink 
+[    13.41] free -m (stage 2 start):
+               total        used        free      shared  buff/cache   available
+Mem:             896         389         511         326         329         507
+Swap:              0           0           0
+[    13.47] prune: removing the Docker stack to free RAM
+[    13.53] === K3s test (node timeout 5400s, pod timeout 2400s) ===
+[    13.55] free -m (before k3s):
+               total        used        free      shared  buff/cache   available
+Mem:             896         389         510         326         329         507
+Swap:              0           0           0
+[    24.30] k3s: k3s version v1.37.0+k3s1 (bb7cf065)
+[    24.35] k3s: airgap images present: busybox-1.37.0.tar local-path-provisioner-v0.0.37.tar mirrored-coredns-coredns-1.14.7.tar pause-3.10.2.tar 
+[    41.03] k3s kubeconfig: ready after 16s
+[    81.13] k3s node Ready: ready after 40s
+[    81.23] prune: removing the imported airgap tars (38040K)
+[    81.37] free -m (k3s node Ready):
+               total        used        free      shared  buff/cache   available
+Mem:             896         688         211         331         335         208
+Swap:              0           0           0
+[    85.16] k3s: domu   Ready   control-plane   13s   v1.37.0+k3s1   10.0.2.15   <none>   Debian GNU/Linux 13 (trixie)   7.2.6 (riscv64)   containerd://2.3.4-k3s1
+[    93.48] k3s pod apply: ready after 8s
+[  141.802812] Out of memory: Killed process 1396 (coredns) total-vm:1327568kB, anon-rss:9784kB, file-rss:8kB, shmem-rss:50440kB, UID:65532 pgtables:232kB oom_score_adj:922
+[  142.082037] Out of memory: Killed process 299 (containerd) total-vm:1543860kB, anon-rss:49248kB, file-rss:8kB, shmem-rss:133700kB, UID:0 pgtables:608kB oom_score_adj:0
+[   142.58] k3s test pod: ready after 49s
+K3S_FAIL: pod logs did not carry the marker (got: The connection to the server 127.0.0.1:6443 was refused - did you specify the right host or port?)
+[   144.61] k3s: last 40 lines of /var/log/k3s.log:
+I0920 09:12:22.579347     264 server.go:177] "Pod update broadcasted" podUID="571ccde7-2618-4dec-ae95-3c9c3bff4e7b" type="MODIFIED"
+I0920 09:12:22.866733     264 pod_startup_latency_tracker.go:144] "Observed pod startup duration" pod="default/payload-test" podStartSLOduration=26.8656213 podStartE2EDuration="26.8656213s" totalImagesPullingTime="0s" totalInitContainerRuntime="0s" isStatefulPod=false podCreationTimestamp="2026-09-20 09:11:56 +0000 UTC" imagePullSessionsCount=0 imagePullSessionsStartsCount=0 observedRunningTime="2026-09-20 09:12:22.8381957 +0000 UTC m=+94.569631701" watchObservedRunningTime="2026-09-20 09:12:22.8656213 +0000 UTC m=+94.597057201"
+I0920 09:12:24.511008     264 server.go:177] "Pod update broadcasted" podUID="571ccde7-2618-4dec-ae95-3c9c3bff4e7b" type="MODIFIED"
+I0920 09:12:27.685545     264 pod_container_deletor.go:83] "Container not found in pod's containers" containerID="efe4f0b6679c4e925176fbb7e43cd1e0600e38219c38bef9d4870fb61ff8ed57"
+I0920 09:12:28.183637     264 server.go:177] "Pod update broadcasted" podUID="b63c4180-57db-40f7-95c4-f1c4af312f75" type="MODIFIED"
+I0920 09:12:29.050091     264 pod_startup_latency_tracker.go:144] "Observed pod startup duration" pod="kube-system/local-path-provisioner-6858d854cf-5x5fg" podStartSLOduration=31.0447344 podStartE2EDuration="31.0447344s" totalImagesPullingTime="0s" totalInitContainerRuntime="0s" isStatefulPod=false podCreationTimestamp="2026-09-20 09:11:58 +0000 UTC" imagePullSessionsCount=0 imagePullSessionsStartsCount=0 observedRunningTime="2026-09-20 09:12:28.9859459 +0000 UTC m=+100.717384201" watchObservedRunningTime="2026-09-20 09:12:29.0447344 +0000 UTC m=+100.776169301"
+I0920 09:12:31.016818     264 server.go:177] "Pod update broadcasted" podUID="571ccde7-2618-4dec-ae95-3c9c3bff4e7b" type="MODIFIED"
+I0920 09:12:31.231850     264 reconciler_common.go:163] "operationExecutor.UnmountVolume started for volume \"kubernetes.io/projected/571ccde7-2618-4dec-ae95-3c9c3bff4e7b-kube-api-access-vsn6j\" (UniqueName: \"kubernetes.io/projected/571ccde7-2618-4dec-ae95-3c9c3bff4e7b-kube-api-access-vsn6j\") pod \"571ccde7-2618-4dec-ae95-3c9c3bff4e7b\" (UID: \"571ccde7-2618-4dec-ae95-3c9c3bff4e7b\") "
+I0920 09:12:31.335446     264 operation_generator.go:791] UnmountVolume.TearDown succeeded for volume "kubernetes.io/projected/571ccde7-2618-4dec-ae95-3c9c3bff4e7b-kube-api-access-vsn6j" pod "571ccde7-2618-4dec-ae95-3c9c3bff4e7b" (UID: "571ccde7-2618-4dec-ae95-3c9c3bff4e7b"). InnerVolumeSpecName "kube-api-access-vsn6j". PluginName "kubernetes.io/projected", VolumeGIDValue ""
+I0920 09:12:31.384336     264 reconciler_common.go:299] "Volume detached for volume \"kube-api-access-vsn6j\" (UniqueName: \"kubernetes.io/projected/571ccde7-2618-4dec-ae95-3c9c3bff4e7b-kube-api-access-vsn6j\") on node \"domu\" DevicePath \"\""
+I0920 09:12:32.416673     264 server.go:177] "Pod update broadcasted" podUID="de914f49-ced5-4c8b-afcc-1506070361cc" type="MODIFIED"
+I0920 09:12:32.665851     264 server.go:190] "Pod removed broadcasted" podUID="571ccde7-2618-4dec-ae95-3c9c3bff4e7b"
+I0920 09:12:32.957242     264 server.go:177] "Pod update broadcasted" podUID="208df806-8f2e-4573-8240-8f26e193fd67" type="MODIFIED"
+E0920 09:12:37.784281     264 remote_image.go:334] "PullImage from image service failed" err="rpc error: code = Unknown desc = failed to pull and unpack image \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to resolve reference \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to do request: Head \"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\": dial tcp: lookup registry-1.docker.io: Try again" image="rancher/klipper-helm:v0.13.3-build20260727"
+E0920 09:12:37.789087     264 kuberuntime_image.go:43] "Failed to pull image" err="failed to pull and unpack image \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to resolve reference \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to do request: Head \"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\": dial tcp: lookup registry-1.docker.io: Try again" image="rancher/klipper-helm:v0.13.3-build20260727"
+I0920 09:12:37.960756     264 pod_startup_latency_tracker.go:144] "Observed pod startup duration" pod="kube-system/coredns-577d995dff-5bsm9" podStartSLOduration=39.9578756 podStartE2EDuration="39.9578756s" totalImagesPullingTime="0s" totalInitContainerRuntime="0s" isStatefulPod=false podCreationTimestamp="2026-09-20 09:11:58 +0000 UTC" imagePullSessionsCount=0 imagePullSessionsStartsCount=0 observedRunningTime="2026-09-20 09:12:37.9252026 +0000 UTC m=+109.656640401" watchObservedRunningTime="2026-09-20 09:12:37.9578756 +0000 UTC m=+109.689312801"
+E0920 09:12:37.978230     264 kuberuntime_manager.go:1854] "Unhandled Error" err="container helm start failed in pod helm-install-gateway-api-crd-c88wv_kube-system(de914f49-ced5-4c8b-afcc-1506070361cc): ErrImagePull: failed to pull and unpack image \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to resolve reference \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to do request: Head \"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\": dial tcp: lookup registry-1.docker.io: Try again" logger="UnhandledError"
+E0920 09:12:37.990084     264 pod_workers.go:1338] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"helm\" with ErrImagePull: \"failed to pull and unpack image \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to resolve reference \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to do request: Head \\\"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\\\": dial tcp: lookup registry-1.docker.io: Try again\"" pod="kube-system/helm-install-gateway-api-crd-c88wv" podUID="de914f49-ced5-4c8b-afcc-1506070361cc"
+I0920 09:12:39.746393     264 server.go:177] "Pod update broadcasted" podUID="208df806-8f2e-4573-8240-8f26e193fd67" type="MODIFIED"
+I0920 09:12:39.823748     264 server.go:177] "Pod update broadcasted" podUID="208df806-8f2e-4573-8240-8f26e193fd67" type="MODIFIED"
+time="2026-09-20T09:12:45Z" level=error msg="Shutdown request received: \"containerd exited: signal: killed\""
+time="2026-09-20T09:12:45Z" level=info msg="Waiting up to 2s for graceful shutdown of Kine GRPC server..."
+E0920 09:12:46.195886     264 remote_runtime.go:435] "ListPodSandbox with filter from runtime service failed" err="rpc error: code = Unavailable desc = connection error: desc = \"transport: Error while dialing: dial unix /run/k3s/containerd/containerd.sock: connect: connection refused\"" filter=""
+E0920 09:12:46.199480     264 generic.go:308] "GenericPLEG: Unable to retrieve pods" err="rpc error: code = Unavailable desc = connection error: desc = \"transport: Error while dialing: dial unix /run/k3s/containerd/containerd.sock: connect: connection refused\""
+E0920 09:12:46.403287     264 remote_runtime.go:435] "ListPodSandbox with filter from runtime service failed" err="rpc error: code = Unavailable desc = connection error: desc = \"transport: Error while dialing: dial unix /run/k3s/containerd/containerd.sock: connect: connection refused\"" filter="state:{}"
+E0920 09:12:46.405232     264 kubelet_pods.go:1296] "Error listing containers" err="rpc error: code = Unavailable desc = connection error: desc = \"transport: Error while dialing: dial unix /run/k3s/containerd/containerd.sock: connect: connection refused\""
+E0920 09:12:46.405440     264 kubelet.go:2856] "Failed cleaning pods" err="rpc error: code = Unavailable desc = connection error: desc = \"transport: Error while dialing: dial unix /run/k3s/containerd/containerd.sock: connect: connection refused\""
+E0920 09:12:47.201360     264 remote_runtime.go:435] "ListPodSandbox with filter from runtime service failed" err="rpc error: code = Unavailable desc = connection error: desc = \"transport: Error while dialing: dial unix /run/k3s/containerd/containerd.sock: connect: connection refused\"" filter=""
+E0920 09:12:47.201903     264 generic.go:308] "GenericPLEG: Unable to retrieve pods" err="rpc error: code = Unavailable desc = connection error: desc = \"transport: Error while dialing: dial unix /run/k3s/containerd/containerd.sock: connect: connection refused\""
+E0920 09:12:47.553359     264 controller.go:260] "Failed to update lease" err="Put \"https://127.0.0.1:6443/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases/domu?timeout=10s\": dial tcp 127.0.0.1:6443: connect: connection refused"
+E0920 09:12:47.561258     264 controller.go:260] "Failed to update lease" err="Put \"https://127.0.0.1:6443/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases/domu?timeout=10s\": dial tcp 127.0.0.1:6443: connect: connection refused"
+E0920 09:12:47.569611     264 controller.go:260] "Failed to update lease" err="Put \"https://127.0.0.1:6443/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases/domu?timeout=10s\": dial tcp 127.0.0.1:6443: connect: connection refused"
+E0920 09:12:47.579318     264 controller.go:260] "Failed to update lease" err="Put \"https://127.0.0.1:6443/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases/domu?timeout=10s\": dial tcp 127.0.0.1:6443: connect: connection refused"
+E0920 09:12:47.587157     264 controller.go:260] "Failed to update lease" err="Put \"https://127.0.0.1:6443/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases/domu?timeout=10s\": dial tcp 127.0.0.1:6443: connect: connection refused"
+I0920 09:12:47.588564     264 controller.go:178] "failed to update lease using latest lease, fallback to ensure lease" err="failed 5 attempts to update lease"
+E0920 09:12:47.597169     264 controller.go:208] "Failed to ensure lease exists, will retry" err="Get \"https://127.0.0.1:6443/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases/domu?timeout=10s\": dial tcp 127.0.0.1:6443: connect: connection refused" interval="200ms"
+E0920 09:12:47.804463     264 controller.go:208] "Failed to ensure lease exists, will retry" err="Get \"https://127.0.0.1:6443/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases/domu?timeout=10s\": dial tcp 127.0.0.1:6443: connect: connection refused" interval="400ms"
+E0920 09:12:48.243489     264 remote_runtime.go:435] "ListPodSandbox with filter from runtime service failed" err="rpc error: code = Unavailable desc = connection error: desc = \"transport: Error while dialing: dial unix /run/k3s/containerd/containerd.sock: connect: connection refused\"" filter=""
+E0920 09:12:48.247978     264 generic.go:308] "GenericPLEG: Unable to retrieve pods" err="rpc error: code = Unavailable desc = connection error: desc = \"transport: Error while dialing: dial unix /run/k3s/containerd/containerd.sock: connect: connection refused\""
+E0920 09:12:48.325837     264 controller.go:208] "Failed to ensure lease exists, will retry" err="Get \"https://127.0.0.1:6443/apis/coordination.k8s.io/v1/namespaces/kube-node-lease/leases/domu?timeout=10s\": dial tcp 127.0.0.1:6443: connect: connection refused" interval="800ms"
+[   145.17] SUMMARY: docker=skipped k3s=failed: pod logs did not carry the marker (got: The connection to the server 127.0.0.1:6443 was refused - did you specify the right host or port?)
+[   145.19] free -m (final):
+               total        used        free      shared  buff/cache   available
+Mem:             896         522         377         451         456         374
+Swap:              0           0           0
+PAYLOAD_DONE
+[  146.330010] reboot: Power down

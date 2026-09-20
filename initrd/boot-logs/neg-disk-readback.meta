@@ -1,0 +1,12 @@
+tag:      neg-disk-readback
+qemu:     10.0.13 (container xen-domu-qemu:latest, Debian trixie)
+kernel:   Image  sha256 542e9cecc0dc99d198998cd98d9656a7668e0316a24efb6e4b76e5b691e3359b
+initrd:   neg-disk.cpio.gz  sha256 c0de45c0b192816af6a2fdd8c66b15589434ac798975fcb0e988bf3d6438c55a
+machine:  -M virt -m 640 -smp 4 -nographic -no-reboot -drive file=/work/scratch/neg-disk-readback.img,if=none,id=d0,format=raw -device virtio-blk-device,drive=d0 -nic none
+disk:     64 MiB raw virtio-blk, zeroed before the run
+nic:      none (-nic none)
+append:   console=ttyS0 test=disk disk.dev=/dev/vda
+started:  2026-09-20T17:08:45Z
+finished: 2026-09-20T17:09:21Z
+exit:     0
+wall_s:   36

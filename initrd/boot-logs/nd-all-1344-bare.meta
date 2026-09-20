@@ -1,0 +1,12 @@
+tag:      nd-all-1344-bare
+qemu:     10.0.13 (container xen-domu-qemu:latest, Debian trixie)
+kernel:   Image  sha256 542e9cecc0dc99d198998cd98d9656a7668e0316a24efb6e4b76e5b691e3359b
+initrd:   initrd.cpio.gz  sha256 361eb30f1736468e75f6f5a0b1c308cdd8f66aea56abc095595f9e43f58a711a
+machine:  -M virt -m 1344 -smp 4 -nographic -no-reboot -nic none
+disk:     none
+nic:      none (-nic none)
+append:   console=ttyS0 test=all
+started:  2026-09-20T16:54:25Z
+finished: 2026-09-20T17:01:36Z
+exit:     0
+wall_s:   431

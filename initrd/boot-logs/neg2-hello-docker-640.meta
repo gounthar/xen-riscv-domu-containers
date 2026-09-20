@@ -1,0 +1,12 @@
+tag:      neg2-hello-docker-640
+qemu:     10.0.13 (container xen-domu-qemu:latest, Debian trixie)
+kernel:   Image  sha256 542e9cecc0dc99d198998cd98d9656a7668e0316a24efb6e4b76e5b691e3359b
+initrd:   neg2-docker.cpio.gz  sha256 989f057a72e3ac505012d17da858a3c49351e946da343edee002f6052ddedfa3
+machine:  -M virt -m 640 -smp 4 -nographic -no-reboot -nic none
+disk:     none
+nic:      none (-nic none)
+append:   console=ttyS0 test=docker
+started:  2026-09-20T17:03:11Z
+finished: 2026-09-20T17:04:38Z
+exit:     0
+wall_s:   87

@@ -1,0 +1,10 @@
+tag:      docker-448-iropts-run4
+qemu:     10.0.13 (container xen-domu-qemu:latest, Debian trixie)
+kernel:   Image  sha256 d2cd6a3771a7c4fb159cdf442d72129afdb2c813043bcb54a3c078fae5818d4b
+initrd:   initrd-docker.cpio.gz  sha256 0ecfd84cf209da747a0529fb980bd749d4c62d4269a77405e149b3954449308e
+machine:  -M virt -m 448 -smp 4 -nographic -no-reboot -nic none
+append:   console=ttyS0 initramfs_options=size=90% test=docker docker.timeout=1800 progress=120
+started:  2026-09-20T09:53:25Z
+finished: 2026-09-20T09:54:03Z
+exit:     0
+wall_s:   38
