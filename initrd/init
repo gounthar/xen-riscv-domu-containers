@@ -1,0 +1,1201 @@
+#!/bin/bash
+# /init - PID 1 for the riscv64 container test payload initrd.
+#
+# Boots entirely from RAM and runs three tests: a Docker container run, a
+# single-node K3s cluster with one pod, and a read-write round trip over a
+# block device if the guest was given one. It needs neither a disk nor a
+# network device, and uses both when they are there.
+# Results are printed to the console as greppable markers:
+#
+#   PAYLOAD_START
+#   PAYLOAD_FAIL: initrd truncated <detail>   (nothing else runs after this)
+#   DISK_OK   | DISK_FAIL: <reason>           (absent when there is no device)
+#   DOCKER_OK | DOCKER_FAIL: <reason>
+#   K3S_OK    | K3S_FAIL: <reason>
+#   PAYLOAD_DONE
+#
+# Before any test runs, the image is checked against the manifest built into it
+# (/etc/payload-manifest). An initrd that the kernel could not unpack in full is
+# reported as PAYLOAD_FAIL and nothing else is attempted, because a truncated
+# image can still pass a test whose files happened to survive the cut.
+#
+# Kernel command line options (see NOTES.md):
+#   test=all|docker|k3s|disk  which tests to run (default: all, disk first)
+#   debug=1               drop to a shell instead of powering off
+#   keep=1                do not delete the unused stack to free RAM
+#   k3s.full=1            keep traefik, servicelb and metrics-server enabled
+#   k3s.timeout=SECONDS   budget for the node to become Ready (default 1800)
+#   k3s.podtimeout=SEC    budget for the test pod (default 900)
+#   docker.timeout=SEC    budget for the Docker test (default 600)
+#   docker.storage=NAME   force a storage driver instead of probing
+#   disk.dev=PATH         block device for the disk test (default /dev/xvda)
+#   disk.timeout=SEC      budget for each disk operation (default 300)
+#   root.size=SIZE        tmpfs size for the real root (default 90%)
+#   net.addr=CIDR         address for the chosen interface (default 10.0.2.15/24)
+#   net.gw=IP             gateway for the default route (default 10.0.2.2)
+#   progress=SECONDS      progress line interval (default 30)
+
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+export HOME=/root
+export LANG=C
+
+BUILD_EPOCH_DEFAULT=0
+[ -r /etc/payload-build-epoch ] && read -r BUILD_EPOCH_DEFAULT < /etc/payload-build-epoch
+
+# ---------------------------------------------------------------- defaults --
+TEST=all
+DEBUG=0
+KEEP=0
+K3S_FULL=0
+K3S_TIMEOUT=1800
+K3S_PODTIMEOUT=900
+DOCKER_TIMEOUT=600
+DOCKER_STORAGE=auto
+DISK_DEV=/dev/xvda
+DISK_TIMEOUT=300
+DISK_MNT=/mnt/payload-disk
+ROOT_SIZE=90%
+NET_ADDR=10.0.2.15/24
+NET_GW=10.0.2.2
+PROGRESS=30
+QUIET_KERNEL=1
+
+MANIFEST=/etc/payload-manifest
+VARIANT=unknown
+HAVE_DOCKER=0
+HAVE_K3S=0
+
+K3S_DATA=/var/lib/rancher/k3s
+K3S_BIN=$K3S_DATA/data/current/bin
+IMAGES_DIR=$K3S_DATA/agent/images
+# The image both tests actually run. It is the stock hello-world, executed the
+# way the image defines itself, with no command of our own: the markers below
+# are reachable only when its own entrypoint ran and printed its own text.
+HELLO_IMAGE=hello-world:latest
+HELLO_TAR=$IMAGES_DIR/hello-world-latest.tar
+HELLO_TEXT="Hello from Docker!"
+# hello-world exits immediately and carries no shell, so the second Docker
+# check, which reads /proc/self/status inside a live container, still needs
+# busybox. It is kept in the image for that.
+BUSYBOX_IMAGE=busybox:1.37.0
+BUSYBOX_TAR=$IMAGES_DIR/busybox-1.37.0.tar
+
+DOCKER_RESULT=skipped
+K3S_RESULT=skipped
+DISK_RESULT=skipped
+
+# Which tests stage 2 will actually run, decided by select_tests from the
+# requested test= and the variant this image turns out to be.
+RUN_DOCKER=0
+RUN_K3S=0
+RUN_DISK=0
+
+# The interface the payload settled on and the address that ended up on it.
+# K3s registers the node by that address and /etc/hosts has to name it, so it
+# is read back from the interface rather than assumed.
+NET_IF=""
+NET_IF_KIND=none
+NODE_ADDR=""
+
+# ----------------------------------------------------------------- helpers --
+uptime_s() {
+	local up rest
+	read -r up rest < /proc/uptime 2>/dev/null || up=0
+	printf '%s' "$up"
+}
+
+say() {
+	printf '[%9s] %s\n' "$(uptime_s)" "$*"
+}
+
+marker() {
+	printf '%s\n' "$*"
+}
+
+memline() {
+	local tag=$1
+	if command -v free >/dev/null 2>&1; then
+		say "free -m ($tag):"
+		free -m
+	fi
+}
+
+# Read one key out of the build-time manifest. Unknown keys give an empty
+# string, which every caller treats as "not stated".
+manifest_get() {
+	sed -n "s/^$1=//p" "$MANIFEST" 2>/dev/null | head -1
+}
+
+# The size of the filesystem the payload is living in, and how much of it is
+# left. On the initramfs rootfs this is the number that explains a truncated
+# image: with no root= on the command line the kernel makes that rootfs a tmpfs
+# capped at half of RAM, so the whole archive has to fit under that half.
+rootfs_line() {
+	local tag=$1 type size used avail mem
+	type=$(awk '$2=="/" {print $3; exit}' /proc/mounts 2>/dev/null)
+	set -- $(df -k / 2>/dev/null | awk 'NR==2 {print $2, $3, $4}')
+	size=${1:-0}
+	used=${2:-0}
+	avail=${3:-0}
+	mem=$(awk '/^MemTotal:/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null)
+	say "rootfs ($tag): ${type:-unknown} $((size / 1024))M total, \
+$((used / 1024))M used, $((avail / 1024))M free; MemTotal ${mem:-?}M"
+}
+
+# Refuse to run anything on an image the kernel did not unpack in full.
+payload_fail() {
+	marker "PAYLOAD_FAIL: initrd truncated ($1)"
+	say "payload: the image is incomplete, so no test was run and no test"
+	say "payload: marker will be printed. Give the guest more RAM, or boot a"
+	say "payload: smaller variant, or add initramfs_options=size=90% (see NOTES)."
+	rootfs_line "at the failure"
+	say "payload: kernel initramfs lines:"
+	dmesg 2>/dev/null | grep -i -E 'initramfs|initrd' | tail -5
+	if [ "$DEBUG" = 1 ]; then
+		say "debug=1: dropping to a shell instead of powering off"
+		fallback_shell
+	fi
+	sync
+	sleep 1
+	busybox poweroff -f 2>/dev/null
+	poweroff -f 2>/dev/null
+	echo o >/proc/sysrq-trigger 2>/dev/null
+	while :; do sleep 3600; done
+}
+
+# Same walk at build time and at boot: everything under / except the
+# pseudo-filesystems and the manifest itself, which is written after counting.
+count_tree() {
+	find / -xdev -mindepth 1 \
+		\( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /tmp \
+		-o -path /newroot -o -path "$MANIFEST" \) -prune -o -printf '%y %s\n' 2>/dev/null |
+		awk '{n++; if ($1=="f") b+=$2} END {printf "%d %d\n", n+0, b+0}'
+}
+
+# Two independent checks, because either one alone can be fooled. The kernel
+# message is the direct evidence but depends on its exact wording; the manifest
+# does not care what the kernel printed or why a file is missing.
+check_integrity() {
+	local line sentinel want got n b wn wb path size t0 t1 c
+	t0=$(date +%s 2>/dev/null)
+
+	line=$(dmesg 2>/dev/null | grep -m1 'Initramfs unpacking failed')
+	if [ -n "$line" ]; then
+		payload_fail "kernel: ${line#*] }"
+	fi
+
+	if [ ! -r "$MANIFEST" ]; then
+		marker "PAYLOAD_FAIL: initrd manifest missing ($MANIFEST is not readable)"
+		say "payload: this image was not produced by the build.sh next to it,"
+		say "payload: or the archive is truncated before etc/. Nothing was run."
+		rootfs_line "at the failure"
+		[ "$DEBUG" = 1 ] && fallback_shell
+		sync
+		busybox poweroff -f 2>/dev/null
+		while :; do sleep 3600; done
+	fi
+
+	VARIANT=$(manifest_get variant)
+	[ -n "$VARIANT" ] || VARIANT=unknown
+	case "$VARIANT" in
+	docker | all | full) HAVE_DOCKER=1 ;;
+	esac
+	case "$VARIANT" in
+	k3s | all | full) HAVE_K3S=1 ;;
+	esac
+
+	# The sentinel sorts last in the archive, so the kernel writes it last. If
+	# it is there and intact, the unpack reached the end of the stream.
+	sentinel=$(manifest_get sentinel)
+	want=$(manifest_get sentinel_sha256)
+	if [ -z "$sentinel" ] || [ -z "$want" ]; then
+		payload_fail "the manifest itself is incomplete (no sentinel line)"
+	fi
+	if [ ! -f "/$sentinel" ]; then
+		payload_fail "last archive member /$sentinel is missing"
+	fi
+	got=$(sha256sum "/$sentinel" 2>/dev/null | cut -d' ' -f1)
+	if [ "$got" != "$want" ]; then
+		payload_fail "last archive member /$sentinel is damaged"
+	fi
+
+	# Named files with their build-time sizes. Cheap, and it names the missing
+	# file rather than only a count.
+	c=0
+	while read -r path size; do
+		[ -n "$path" ] || continue
+		c=$((c + 1))
+		if [ ! -e "/$path" ]; then
+			payload_fail "/$path is missing"
+		fi
+		got=$(stat -c %s "/$path" 2>/dev/null)
+		if [ "$got" != "$size" ]; then
+			payload_fail "/$path is ${got:-0} bytes, the manifest says $size"
+		fi
+	done <<-EOF
+		$(sed -n 's/^critical=//p' "$MANIFEST" | tr ':' ' ')
+	EOF
+
+	# Full file list and total size. No checksums: hashing 200 to 500 MiB under
+	# emulation costs minutes, and a partial write cannot change a file's size
+	# without the count or the byte total moving with it.
+	wn=$(manifest_get files)
+	wb=$(manifest_get bytes)
+	read -r n b <<-EOF
+		$(count_tree)
+	EOF
+	if [ "$n" != "$wn" ] || [ "$b" != "$wb" ]; then
+		payload_fail "$n files / $b bytes, the manifest says $wn / $wb"
+	fi
+
+	t1=$(date +%s 2>/dev/null)
+	say "payload: image intact (variant $VARIANT, $n files, $b bytes, \
+$c named files, checked in $((t1 - t0))s)"
+	return 0
+}
+
+parse_cmdline() {
+	local w cmdline=""
+	[ -r /proc/cmdline ] && read -r cmdline < /proc/cmdline
+	for w in $cmdline; do
+		case "$w" in
+		test=*) TEST=${w#test=} ;;
+		debug=*) DEBUG=${w#debug=} ;;
+		keep=*) KEEP=${w#keep=} ;;
+		k3s.full=*) K3S_FULL=${w#k3s.full=} ;;
+		k3s.timeout=*) K3S_TIMEOUT=${w#k3s.timeout=} ;;
+		k3s.podtimeout=*) K3S_PODTIMEOUT=${w#k3s.podtimeout=} ;;
+		docker.timeout=*) DOCKER_TIMEOUT=${w#docker.timeout=} ;;
+		docker.storage=*) DOCKER_STORAGE=${w#docker.storage=} ;;
+		disk.dev=*) DISK_DEV=${w#disk.dev=} ;;
+		disk.timeout=*) DISK_TIMEOUT=${w#disk.timeout=} ;;
+		root.size=*) ROOT_SIZE=${w#root.size=} ;;
+		net.addr=*) NET_ADDR=${w#net.addr=} ;;
+		net.gw=*) NET_GW=${w#net.gw=} ;;
+		progress=*) PROGRESS=${w#progress=} ;;
+		loglevel=* | quiet) QUIET_KERNEL=0 ;;
+		esac
+	done
+	[ "$DEBUG" = 1 ] && KEEP=1
+	return 0
+}
+
+# wait_until <timeout> <label> <command...>: poll until the command succeeds.
+# POLL_INTERVAL is how long to sleep between attempts. Keep it high for checks
+# that run kubectl: each call forks the 200 MiB K3s multicall binary, and under
+# emulation that steals real CPU from the server it is waiting for.
+POLL_INTERVAL=2
+wait_until() {
+	local timeout=$1 label=$2
+	shift 2
+	local start now elapsed last=0
+	start=$(date +%s)
+	while :; do
+		if "$@" >/dev/null 2>&1; then
+			now=$(date +%s)
+			say "$label: ready after $((now - start))s"
+			return 0
+		fi
+		now=$(date +%s)
+		elapsed=$((now - start))
+		if [ "$elapsed" -ge "$timeout" ]; then
+			say "$label: TIMEOUT after ${elapsed}s"
+			return 1
+		fi
+		if [ $((elapsed - last)) -ge "$PROGRESS" ]; then
+			last=$elapsed
+			say "$label: still waiting (${elapsed}s/${timeout}s)"
+			progress_extra
+		fi
+		sleep "$POLL_INTERVAL"
+	done
+}
+
+# Overridden by the K3s test so progress lines carry the last server log line.
+progress_extra() { :; }
+
+# True once the pid is gone or a reaped-but-not-yet-waited zombie.
+proc_gone() {
+	local p=$1 state
+	[ -d "/proc/$p" ] || return 0
+	state=$(awk '{print $3}' "/proc/$p/stat" 2>/dev/null)
+	[ "$state" = Z ]
+}
+
+# stop_pid <pid> <seconds>: SIGTERM, wait, then SIGKILL.
+stop_pid() {
+	local p=$1 grace=$2 n=0
+	[ -n "$p" ] || return 0
+	kill "$p" 2>/dev/null
+	while ! proc_gone "$p" && [ $n -lt "$grace" ]; do
+		sleep 1
+		n=$((n + 1))
+	done
+	kill -9 "$p" 2>/dev/null
+	wait "$p" 2>/dev/null
+	return 0
+}
+
+# ------------------------------------------------------------ stage 1: RAM --
+# runc cannot pivot_root out of the initramfs rootfs, so Docker and containerd
+# both break unless the real root is a normal mount. Move everything into a
+# tmpfs and switch_root into it.
+stage1() {
+	mount -t proc proc /proc 2>/dev/null
+	mount -t sysfs sysfs /sys 2>/dev/null
+	mount -t devtmpfs devtmpfs /dev 2>/dev/null
+
+	marker PAYLOAD_START
+	parse_cmdline
+
+	# Before anything else, and before the kernel log is quietened, because the
+	# first check reads that log.
+	rootfs_line "initramfs"
+	check_integrity
+
+	[ "$QUIET_KERNEL" = 1 ] && dmesg -n 4 2>/dev/null
+
+	say "stage 1: initramfs rootfs, moving the root to tmpfs (size=$ROOT_SIZE)"
+	memline "stage 1 start"
+
+	mkdir -p /newroot
+	if ! mount -t tmpfs -o "mode=0755,size=$ROOT_SIZE" tmpfs /newroot; then
+		say "stage 1: FATAL tmpfs mount failed, staying on initramfs"
+		say "stage 1: Docker needs DOCKER_RAMDISK=true here and K3s will fail"
+		export DOCKER_RAMDISK=true
+		export PAYLOAD_STAGE2=1
+		stage2
+		return
+	fi
+
+	local p base
+	# The core system is copied, not moved: the shell and tar running this are
+	# using those files, and deleting a mapped loader mid-pipeline is a race.
+	# switch_root deletes them from the initramfs afterwards anyway.
+	mkdir -p /newroot/usr
+	for p in bin sbin lib lib32 lib64 libx32 init; do
+		[ -e "/$p" ] && cp -a "/$p" /newroot/
+	done
+	for p in bin sbin lib lib64 libexec; do
+		[ -e "/usr/$p" ] && cp -a "/usr/$p" /newroot/usr/
+	done
+
+	# Everything else is moved with --remove-files, so the initramfs copy is
+	# freed as the tmpfs copy is written and the peak stays close to one copy.
+	local -a items=()
+	for base in $(ls -A /); do
+		case "$base" in
+		proc | sys | dev | run | tmp | newroot) continue ;;
+		bin | sbin | lib | lib32 | lib64 | libx32 | init) continue ;;
+		usr) continue ;;
+		esac
+		items+=("$base")
+	done
+	for base in $(ls -A /usr); do
+		case "$base" in
+		bin | sbin | lib | lib64 | libexec) continue ;;
+		esac
+		items+=("usr/$base")
+	done
+	if [ ${#items[@]} -gt 0 ]; then
+		tar -C / --remove-files -cf - "${items[@]}" 2>/dev/null |
+			tar -C /newroot -xpf - 2>/dev/null
+	fi
+
+	mkdir -p /newroot/proc /newroot/sys /newroot/dev /newroot/run /newroot/tmp
+	chmod 1777 /newroot/tmp
+
+	if [ ! -x /newroot/init ]; then
+		say "stage 1: FATAL /newroot/init missing after the move"
+		fallback_shell
+	fi
+
+	say "stage 1: switching root"
+	export PAYLOAD_STAGE2=1
+	exec switch_root /newroot /init
+	say "stage 1: FATAL switch_root failed"
+	fallback_shell
+}
+
+# ------------------------------------------------ stage 2: real root, tests --
+mount_fs() {
+	mountpoint -q /proc 2>/dev/null || mount -t proc proc /proc
+	mountpoint -q /sys 2>/dev/null || mount -t sysfs sysfs /sys
+	mountpoint -q /dev 2>/dev/null || mount -t devtmpfs devtmpfs /dev
+	mkdir -p /dev/pts /dev/shm /run /tmp /var/log /var/run
+	mountpoint -q /dev/pts 2>/dev/null ||
+		mount -t devpts -o gid=5,mode=620,ptmxmode=666 devpts /dev/pts
+	mountpoint -q /dev/shm 2>/dev/null ||
+		mount -t tmpfs -o mode=1777,size=25% shm /dev/shm
+	mountpoint -q /run 2>/dev/null ||
+		mount -t tmpfs -o mode=0755 tmpfs /run
+	mountpoint -q /tmp 2>/dev/null ||
+		mount -t tmpfs -o mode=1777 tmpfs /tmp
+
+	[ -e /dev/fd ] || ln -s /proc/self/fd /dev/fd
+	[ -e /dev/stdin ] || ln -s /proc/self/fd/0 /dev/stdin
+	[ -e /dev/stdout ] || ln -s /proc/self/fd/1 /dev/stdout
+	[ -e /dev/stderr ] || ln -s /proc/self/fd/2 /dev/stderr
+
+	# Container runtimes need mount propagation from the root.
+	mount --make-rshared / 2>/dev/null
+
+	setup_cgroups
+}
+
+setup_cgroups() {
+	mkdir -p /sys/fs/cgroup
+	if ! mountpoint -q /sys/fs/cgroup 2>/dev/null; then
+		if ! mount -t cgroup2 -o nsdelegate,memory_recursiveprot cgroup2 /sys/fs/cgroup; then
+			mount -t cgroup2 cgroup2 /sys/fs/cgroup ||
+				say "cgroups: FATAL cannot mount cgroup2"
+		fi
+	fi
+	[ -f /sys/fs/cgroup/cgroup.controllers ] || {
+		say "cgroups: no cgroup v2 controllers file, v1 kernel?"
+		return 1
+	}
+
+	# Move ourselves out of the root cgroup before delegating controllers, so
+	# the root cgroup has no processes of its own.
+	mkdir -p /sys/fs/cgroup/init
+	local pid
+	while read -r pid; do
+		echo "$pid" >/sys/fs/cgroup/init/cgroup.procs 2>/dev/null
+	done </sys/fs/cgroup/cgroup.procs
+
+	local c want=""
+	for c in $(cat /sys/fs/cgroup/cgroup.controllers); do
+		want="$want +$c"
+	done
+	if [ -n "$want" ]; then
+		echo "$want" >/sys/fs/cgroup/cgroup.subtree_control 2>/dev/null ||
+			say "cgroups: could not delegate:$want"
+	fi
+	say "cgroups: available:$(tr '\n' ' ' </sys/fs/cgroup/cgroup.controllers)"
+	say "cgroups: delegated: $(cat /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null)"
+}
+
+setup_system() {
+	echo domu >/proc/sys/kernel/hostname 2>/dev/null
+	echo domu >/etc/hostname
+	[ -s /etc/machine-id ] || {
+		local id
+		read -r id </proc/sys/kernel/random/uuid 2>/dev/null
+		printf '%s\n' "${id//-/}" >/etc/machine-id
+	}
+	# Written now with the address the command line asked for, and written
+	# again by setup_network once the address is actually on an interface.
+	# K3s registers the node by it, so the two must not drift apart.
+	NODE_ADDR=${NET_ADDR%%/*}
+	write_hosts
+	[ -s /etc/resolv.conf ] || echo "nameserver 10.0.2.3" >/etc/resolv.conf
+
+	# A domU without an RTC starts in 1970; K3s issues its own certificates
+	# with NotBefore=now, so a plausible clock avoids confusing skew reports.
+	local now=0
+	now=$(date +%s 2>/dev/null)
+	if [ -n "$BUILD_EPOCH_DEFAULT" ] && [ "$now" -lt "$BUILD_EPOCH_DEFAULT" ]; then
+		date -s "@$BUILD_EPOCH_DEFAULT" >/dev/null 2>&1 &&
+			say "clock: no RTC, set to the build date $(date -u '+%Y-%m-%d %H:%M:%SZ')"
+	fi
+
+	sysctl -q -w net.ipv4.ip_forward=1 2>/dev/null
+	sysctl -q -w net.ipv4.conf.all.forwarding=1 2>/dev/null
+	sysctl -q -w net.bridge.bridge-nf-call-iptables=1 2>/dev/null
+	sysctl -q -w fs.inotify.max_user_instances=1024 2>/dev/null
+	sysctl -q -w fs.inotify.max_user_watches=65536 2>/dev/null
+	sysctl -q -w kernel.panic=10 2>/dev/null
+}
+
+write_hosts() {
+	cat >/etc/hosts <<-EOF
+		127.0.0.1	localhost
+		$NODE_ADDR	domu
+		::1	localhost ip6-localhost ip6-loopback
+	EOF
+}
+
+# The first real interface the guest was given, or nothing. A real NIC has a
+# parent device in sysfs and a purely virtual one does not, which is what
+# separates a netfront or virtio-net eth0 from dummy0 and from the tunnel
+# stubs some kernels register. The name check is a second line of defence for
+# a driver that does not set a parent device.
+pick_netdev() {
+	local d n fallback=""
+	for d in /sys/class/net/*; do
+		[ -e "$d" ] || continue
+		n=${d##*/}
+		case "$n" in
+		lo | dummy* | sit* | tunl* | ip6tnl* | gre* | gretap* | erspan* | \
+			bond* | veth* | docker* | cni* | flannel* | kube* | br-*) continue ;;
+		esac
+		if [ -e "$d/device" ]; then
+			printf '%s\n' "$n"
+			return 0
+		fi
+		[ -n "$fallback" ] || fallback=$n
+	done
+	if [ -n "$fallback" ]; then
+		printf '%s\n' "$fallback"
+		return 0
+	fi
+	return 1
+}
+
+# A real interface when the guest has one, dummy0 when it does not. dummy0 was
+# only ever a stand-in: K3s refuses to start without a default route and picks
+# its node IP from the route's interface, so something has to carry an address.
+# A real NIC always wins, and the line this prints naming the interface and its
+# driver is the evidence that the frontend came up at all.
+setup_network() {
+	local dev driver=""
+	ip link set lo up 2>/dev/null
+
+	dev=$(pick_netdev)
+	if [ -n "$dev" ]; then
+		NET_IF=$dev
+		NET_IF_KIND=real
+		driver=$(basename "$(readlink -f "/sys/class/net/$dev/device/driver" 2>/dev/null)" 2>/dev/null)
+		say "net: real interface $dev present (driver ${driver:-unknown}), using it"
+	elif ip link show dummy0 >/dev/null 2>&1 || ip link add dummy0 type dummy 2>/dev/null; then
+		NET_IF=dummy0
+		NET_IF_KIND=dummy
+		say "net: no real interface; falling back to dummy0"
+	else
+		NET_IF=""
+		NET_IF_KIND=none
+		say "net: WARNING no real interface and cannot create dummy0 (CONFIG_DUMMY missing?)"
+	fi
+
+	if [ -n "$NET_IF" ]; then
+		ip addr add "$NET_ADDR" dev "$NET_IF" 2>/dev/null
+		ip link set "$NET_IF" up 2>/dev/null
+	fi
+
+	# Read the address back off the interface rather than assuming the add
+	# took, and keep /etc/hosts pointing at whatever is really there.
+	local shown
+	shown=$(ip -o -4 addr show dev "$NET_IF" 2>/dev/null | awk '{print $4; exit}')
+	if [ -n "$shown" ]; then
+		NODE_ADDR=${shown%%/*}
+	else
+		NODE_ADDR=${NET_ADDR%%/*}
+		say "net: WARNING $NET_ADDR did not stick on ${NET_IF:-any interface}"
+	fi
+	write_hosts
+
+	if [ -n "$NET_IF" ] && ! ip route show default | grep -q default; then
+		ip route add default via "$NET_GW" dev "$NET_IF" onlink 2>/dev/null ||
+			ip route add default dev "$NET_IF" 2>/dev/null ||
+			say "net: WARNING no default route; K3s will refuse to start"
+	fi
+	say "net: using $NET_IF ($NET_IF_KIND) with $NODE_ADDR, node will register as that"
+	say "net: $(ip -o -4 addr show | awk '{print $2, $4}' | tr '\n' ' ')"
+	say "net: default route: $(ip route show default | head -1)"
+}
+
+prune_docker() {
+	[ "$KEEP" = 1 ] && return 0
+	say "prune: removing the Docker stack to free RAM"
+	rm -rf /var/lib/docker /var/lib/containerd /run/docker /run/containerd \
+		/usr/local/bin/dockerd /usr/local/bin/containerd \
+		/usr/local/bin/containerd-shim-runc-v2 /usr/local/bin/runc \
+		/usr/local/bin/docker /usr/local/bin/docker-proxy \
+		/usr/local/bin/docker-init 2>/dev/null
+	rm -f /var/log/dockerd.log /var/log/containerd.log 2>/dev/null
+}
+
+prune_k3s() {
+	[ "$KEEP" = 1 ] && return 0
+	say "prune: removing the K3s stack to free RAM"
+	local f
+	rm -rf "$K3S_DATA/data" 2>/dev/null
+	for f in "$IMAGES_DIR"/*; do
+		[ "$f" = "$HELLO_TAR" ] && continue
+		[ "$f" = "$BUSYBOX_TAR" ] && continue
+		rm -f "$f" 2>/dev/null
+	done
+}
+
+# -------------------------------------------------------------- Docker test --
+docker_fail() {
+	DOCKER_RESULT="failed: $1"
+	marker "DOCKER_FAIL: $1"
+	say "docker: last 30 lines of /var/log/dockerd.log:"
+	tail -30 /var/log/dockerd.log 2>/dev/null
+	say "docker: last 20 lines of /var/log/containerd.log:"
+	tail -20 /var/log/containerd.log 2>/dev/null
+	stop_docker
+	return 1
+}
+
+probe_overlay() {
+	local d=/tmp/ovl
+	rm -rf $d
+	mkdir -p $d/lower $d/upper $d/work $d/merged
+	if mount -t overlay overlay \
+		-o "lowerdir=$d/lower,upperdir=$d/upper,workdir=$d/work" $d/merged 2>/dev/null; then
+		umount $d/merged
+		rm -rf $d
+		return 0
+	fi
+	rm -rf $d
+	return 1
+}
+
+start_docker() {
+	mkdir -p /var/lib/docker /var/lib/containerd /var/log /etc/docker
+	containerd --log-level warn >/var/log/containerd.log 2>&1 &
+	CONTAINERD_PID=$!
+	if ! wait_until 120 "containerd" test -S /run/containerd/containerd.sock; then
+		return 1
+	fi
+
+	# --userland-proxy=false because docker-proxy is not shipped: the tests run
+	# with --network none and publish no ports, so the proxy has nothing to do.
+	local -a base=(--host unix:///var/run/docker.sock
+		--containerd /run/containerd/containerd.sock
+		--log-level warn --exec-opt native.cgroupdriver=cgroupfs
+		--userland-proxy=false)
+	local -a attempts=()
+	if [ "$DOCKER_STORAGE" != auto ]; then
+		attempts=("--storage-driver $DOCKER_STORAGE")
+		say "docker: storage driver forced to $DOCKER_STORAGE"
+	elif probe_overlay; then
+		say "docker: overlayfs works on the tmpfs root, using the default driver"
+		attempts=("" "--storage-driver vfs")
+	else
+		say "docker: overlayfs is NOT available, falling back"
+		attempts=("--storage-driver native" "--storage-driver vfs")
+	fi
+
+	local extra try
+	for extra in "" "--bridge none --iptables=false --ip6tables=false"; do
+		for try in "${attempts[@]}"; do
+			# shellcheck disable=SC2086
+			dockerd "${base[@]}" $try $extra >>/var/log/dockerd.log 2>&1 &
+			DOCKERD_PID=$!
+			if wait_until 180 "dockerd${try:+ ($try)}" docker version; then
+				DOCKER_ARGS="$try $extra"
+				say "docker: dockerd started with:${DOCKER_ARGS:- defaults}"
+				return 0
+			fi
+			stop_pid "$DOCKERD_PID" 15
+			DOCKERD_PID=""
+			say "docker: that attempt failed, tail of the log:"
+			tail -5 /var/log/dockerd.log 2>/dev/null
+		done
+	done
+	return 1
+}
+
+stop_docker() {
+	stop_pid "$DOCKERD_PID" 30
+	stop_pid "$CONTAINERD_PID" 20
+	DOCKERD_PID=""
+	CONTAINERD_PID=""
+}
+
+test_docker() {
+	say "=== Docker test (timeout ${DOCKER_TIMEOUT}s) ==="
+	memline "before docker"
+	command -v dockerd >/dev/null 2>&1 || {
+		docker_fail "dockerd is not in the image"
+		return 1
+	}
+	say "docker: $(runc --version | tr '\n' ' ')"
+	runc --version | grep -q '^libseccomp:' ||
+		say "docker: WARNING runc reports no libseccomp version"
+
+	start_docker || {
+		docker_fail "dockerd did not start"
+		return 1
+	}
+	say "docker: storage driver: $(docker info --format '{{.Driver}}' 2>/dev/null)"
+
+	# Both tars live in the K3s airgap directory, so the "all" variant stores
+	# each image once and the K3s test imports the same files.
+	local imgtar
+	for imgtar in "$HELLO_TAR" "$BUSYBOX_TAR"; do
+		if [ ! -f "$imgtar" ]; then
+			docker_fail "no image tar at $imgtar"
+			return 1
+		fi
+		say "docker: loading $imgtar"
+		timeout 300 docker load -i "$imgtar" || {
+			docker_fail "docker load failed for $imgtar"
+			return 1
+		}
+	done
+	# The images are in the Docker store now. Keep the tars only if the K3s
+	# test is still to come, because its airgap import reads the same files.
+	if [ "$TEST" = docker ] && [ "$KEEP" != 1 ]; then
+		rm -f "$HELLO_TAR" "$BUSYBOX_TAR" 2>/dev/null
+	fi
+
+	# No command is passed: this is the hello-world image doing what it does.
+	# The output is captured and printed as evidence, never trusted as a
+	# marker; it carries no marker string of its own, so a reader cannot
+	# mistake it for one, and DOCKER_OK below is reachable only through the
+	# text match.
+	local out
+	out=$(timeout "$DOCKER_TIMEOUT" docker run --rm --network none \
+		"$HELLO_IMAGE" 2>&1)
+	say "docker: output of $HELLO_IMAGE:"
+	printf '%s\n' "$out"
+	case "$out" in
+	*"$HELLO_TEXT"*) ;;
+	*)
+		docker_fail "the container did not print '$HELLO_TEXT' \
+(got: ${out//$'\n'/ | })"
+		return 1
+		;;
+	esac
+
+	# Show the default seccomp profile actually reaching the container. This
+	# one runs busybox: it has to read /proc/self/status from inside a live
+	# container, and hello-world is gone by the time anything could look.
+	local sec mode
+	sec=$(timeout "$DOCKER_TIMEOUT" docker run --rm --network none \
+		"$BUSYBOX_IMAGE" grep Seccomp /proc/self/status 2>&1)
+	say "docker: seccomp inside the container:"
+	printf '%s\n' "$sec"
+	mode=$(printf '%s\n' "$sec" | awk '/^Seccomp:/ {print $2}')
+	if [ "$mode" != 2 ]; then
+		docker_fail "seccomp filter not applied inside the container (Seccomp: ${mode:-unknown})"
+		return 1
+	fi
+
+	DOCKER_RESULT=ok
+	marker DOCKER_OK
+	memline "after docker"
+	stop_docker
+	return 0
+}
+
+# -------------------------------------------------------------- disk test --
+# A block device the guest was given, exercised twice: a raw write and read
+# back of freshly generated random bytes, then a real filesystem round trip
+# through an unmount and a remount. DISK_OK is printed only after both.
+#
+# A missing device is NOT a failure. The payload is meant to boot unchanged on
+# a guest with no disk at all, so it says skipped and prints no marker; a
+# marker that appeared when there was nothing to test would be worse than
+# having no disk test.
+disk_fail() {
+	DISK_RESULT="failed: $1"
+	marker "DISK_FAIL: $1"
+	say "disk: /proc/partitions:"
+	cat /proc/partitions 2>/dev/null
+	say "disk: kernel lines mentioning block devices:"
+	dmesg 2>/dev/null | grep -i -E 'xvd|blkfront|blkback|virtio_blk|vd[a-z] ' | tail -10
+	disk_cleanup
+	return 1
+}
+
+disk_cleanup() {
+	mountpoint -q "$DISK_MNT" 2>/dev/null && umount "$DISK_MNT" 2>/dev/null
+	rmdir "$DISK_MNT" 2>/dev/null
+	rm -f /tmp/disk-pattern /tmp/disk-readback 2>/dev/null
+	return 0
+}
+
+test_disk() {
+	say "=== Disk test (device $DISK_DEV, timeout ${DISK_TIMEOUT}s) ==="
+	if [ ! -b "$DISK_DEV" ]; then
+		DISK_RESULT="skipped: no block device at $DISK_DEV"
+		say "disk: nothing at $DISK_DEV, skipping; this is not a failure"
+		say "disk: block devices the kernel knows about: \
+$(awk 'NR>2 {printf "%s ", $4}' /proc/partitions 2>/dev/null)"
+		return 0
+	fi
+
+	local bytes
+	bytes=$(blockdev --getsize64 "$DISK_DEV" 2>/dev/null)
+	say "disk: $DISK_DEV is a block device of ${bytes:-unknown} bytes"
+	say "disk: NOTE this overwrites $DISK_DEV from byte 0; give it a scratch device"
+
+	# --- raw: fresh random bytes out, cache dropped, same bytes back in ---
+	local n=256 want got
+	if ! dd if=/dev/urandom of=/tmp/disk-pattern bs=4096 count=$n 2>/dev/null; then
+		disk_fail "could not generate the test pattern"
+		return 1
+	fi
+	want=$(sha256sum /tmp/disk-pattern | cut -d' ' -f1)
+	if ! timeout "$DISK_TIMEOUT" dd if=/tmp/disk-pattern of="$DISK_DEV" \
+		bs=4096 count=$n conv=fsync 2>/dev/null; then
+		disk_fail "raw write of $((n * 4096)) bytes to $DISK_DEV failed"
+		return 1
+	fi
+	sync
+	echo 3 >/proc/sys/vm/drop_caches 2>/dev/null
+	if ! timeout "$DISK_TIMEOUT" dd if="$DISK_DEV" of=/tmp/disk-readback \
+		bs=4096 count=$n 2>/dev/null; then
+		disk_fail "raw read of $((n * 4096)) bytes from $DISK_DEV failed"
+		return 1
+	fi
+	got=$(sha256sum /tmp/disk-readback | cut -d' ' -f1)
+	if [ "$want" != "$got" ]; then
+		disk_fail "raw readback differs (wrote $want, read $got)"
+		return 1
+	fi
+	say "disk: raw $((n * 4096)) bytes written and read back identical, sha256 $want"
+
+	# --- filesystem: mkfs, mount, write, unmount, remount, read back ---
+	# The image carries no e2fsprogs. busybox has mke2fs and mkdosfs and is
+	# already shipped for the seccomp check, and the kernel has EXT4_FS with
+	# EXT4_USE_FOR_EXT2, so a busybox ext2 image mounts through the ext4
+	# driver. vfat is the fallback because VFAT_FS is built in as well.
+	local nonce token fs line
+	nonce=$(head -c 16 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n')
+	[ -n "$nonce" ] || nonce=$$-$(date +%s 2>/dev/null)
+	# A nonce, so a file left by an earlier boot cannot satisfy the check.
+	token="DISK_PAYLOAD $nonce"
+
+	for fs in ext4 vfat; do
+		case "$fs" in
+		ext4)
+			if ! timeout "$DISK_TIMEOUT" busybox mke2fs -q "$DISK_DEV" >/dev/null 2>&1; then
+				say "disk: busybox mke2fs failed, trying the next filesystem"
+				fs=""
+				continue
+			fi
+			;;
+		vfat)
+			if ! timeout "$DISK_TIMEOUT" busybox mkdosfs "$DISK_DEV" >/dev/null 2>&1; then
+				say "disk: busybox mkdosfs failed"
+				fs=""
+				continue
+			fi
+			;;
+		esac
+		mkdir -p "$DISK_MNT"
+		if mount -t "$fs" "$DISK_DEV" "$DISK_MNT" 2>/dev/null; then
+			break
+		fi
+		say "disk: mount -t $fs $DISK_DEV failed, trying the next filesystem"
+		fs=""
+	done
+	if [ -z "$fs" ]; then
+		disk_fail "could not create and mount a filesystem on $DISK_DEV (tried ext4, then vfat)"
+		return 1
+	fi
+	say "disk: $fs filesystem created on $DISK_DEV and mounted at $DISK_MNT"
+
+	if ! printf '%s\n' "$token" >"$DISK_MNT/payload-disk-test" 2>/dev/null; then
+		disk_fail "could not write a file to the $fs filesystem"
+		return 1
+	fi
+	sync
+	if ! umount "$DISK_MNT" 2>/dev/null; then
+		disk_fail "could not unmount $DISK_DEV after writing"
+		return 1
+	fi
+	echo 3 >/proc/sys/vm/drop_caches 2>/dev/null
+	if ! mount -t "$fs" "$DISK_DEV" "$DISK_MNT" 2>/dev/null; then
+		disk_fail "could not remount $DISK_DEV after unmounting"
+		return 1
+	fi
+	line=$(cat "$DISK_MNT/payload-disk-test" 2>&1)
+	umount "$DISK_MNT" 2>/dev/null
+	say "disk: read back from the remounted $fs filesystem: $line"
+	if [ "$line" != "$token" ]; then
+		disk_fail "the remounted filesystem gave back something else \
+(wrote '$token', read '${line//$'\n'/ | }')"
+		return 1
+	fi
+
+	DISK_RESULT=ok
+	marker DISK_OK
+	disk_cleanup
+	return 0
+}
+
+# ----------------------------------------------------------------- K3s test --
+k3s_fail() {
+	K3S_RESULT="failed: $1"
+	marker "K3S_FAIL: $1"
+	say "k3s: last 40 lines of /var/log/k3s.log:"
+	tail -40 /var/log/k3s.log 2>/dev/null
+	stop_k3s
+	return 1
+}
+
+kubectl_() {
+	KUBECONFIG=/etc/rancher/k3s/k3s.yaml "$K3S_BIN/kubectl" "$@"
+}
+
+node_ready() {
+	local s
+	s=$(kubectl_ get nodes --no-headers 2>/dev/null | awk '{print $2}')
+	[ "$s" = Ready ]
+}
+
+pod_done() {
+	local s
+	s=$(kubectl_ get pod payload-test -n default \
+		-o jsonpath='{.status.phase}' 2>/dev/null)
+	case "$s" in
+	Succeeded) return 0 ;;
+	Failed)
+		POD_PHASE=Failed
+		return 0
+		;;
+	esac
+	return 1
+}
+
+stop_k3s() {
+	stop_pid "$K3S_PID" 30
+	K3S_PID=""
+}
+
+test_k3s() {
+	say "=== K3s test (node timeout ${K3S_TIMEOUT}s, pod timeout ${K3S_PODTIMEOUT}s) ==="
+	memline "before k3s"
+	[ -x "$K3S_BIN/k3s" ] || {
+		k3s_fail "no k3s binary at $K3S_BIN/k3s"
+		return 1
+	}
+	say "k3s: $("$K3S_BIN/k3s" --version 2>&1 | head -1)"
+	say "k3s: airgap images present: $(ls "$IMAGES_DIR" 2>/dev/null | tr '\n' ' ')"
+
+	local disable="traefik,servicelb,metrics-server"
+	if [ "$K3S_FULL" = 1 ]; then
+		disable=""
+		say "k3s: k3s.full=1, nothing disabled"
+		local missing=""
+		[ -f "$IMAGES_DIR/mirrored-library-traefik-3.7.13.tar" ] || missing="traefik "
+		[ -f "$IMAGES_DIR/metrics-server-v0.9.0.tar" ] || missing="${missing}metrics-server "
+		[ -n "$missing" ] &&
+			say "k3s: WARNING k3s.full=1 but this initrd has no image for: $missing"
+	fi
+
+	mkdir -p /etc/rancher/k3s /var/log
+	# The k3s stub binary is not shipped: its embedded tarball is already
+	# unpacked at $K3S_DATA/data, which is how the upstream k3s container
+	# image runs too. The bundled bin comes first, aux (iptables) last.
+	local k3s_path="$K3S_BIN:$PATH:$K3S_BIN/aux"
+	PATH="$k3s_path" "$K3S_BIN/k3s" server \
+		--data-dir "$K3S_DATA" \
+		${disable:+--disable "$disable"} \
+		--write-kubeconfig-mode 644 \
+		--node-name domu \
+		'--kubelet-arg=eviction-hard=memory.available<32Mi,nodefs.available<2%,imagefs.available<2%' \
+		>/var/log/k3s.log 2>&1 &
+	K3S_PID=$!
+
+	progress_extra() {
+		local l
+		l=$(tail -1 /var/log/k3s.log 2>/dev/null)
+		[ -n "$l" ] && say "k3s: | ${l:0:180}"
+		say "k3s: | mem $(awk '/MemAvailable/ {printf "%dM available", $2/1024}' /proc/meminfo), \
+rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
+	}
+
+	if ! wait_until 120 "k3s kubeconfig" test -r /etc/rancher/k3s/k3s.yaml; then
+		progress_extra
+		k3s_fail "k3s server did not write a kubeconfig"
+		return 1
+	fi
+	POLL_INTERVAL=15
+	if ! wait_until "$K3S_TIMEOUT" "k3s node Ready" node_ready; then
+		POLL_INTERVAL=2
+		k3s_fail "node did not become Ready within ${K3S_TIMEOUT}s"
+		return 1
+	fi
+	progress_extra() { :; }
+	# containerd has imported the airgap tars by the time the node is Ready, so
+	# the tars themselves are now a second copy of the same layers in tmpfs.
+	if [ "$KEEP" != 1 ]; then
+		say "prune: removing the imported airgap tars ($(du -sk "$IMAGES_DIR" 2>/dev/null | cut -f1)K)"
+		rm -f "$IMAGES_DIR"/*.tar 2>/dev/null
+	fi
+	memline "k3s node Ready"
+	say "k3s: $(kubectl_ get nodes -o wide --no-headers 2>/dev/null)"
+
+	cat >/tmp/payload-test.yaml <<-EOF
+		apiVersion: v1
+		kind: Pod
+		metadata:
+		  name: payload-test
+		  namespace: default
+		spec:
+		  restartPolicy: Never
+		  containers:
+		  - name: test
+		    image: $HELLO_IMAGE
+		    imagePullPolicy: Never
+	EOF
+	if ! wait_until 300 "k3s pod apply" kubectl_ apply -f /tmp/payload-test.yaml; then
+		POLL_INTERVAL=2
+		k3s_fail "could not create the test pod"
+		return 1
+	fi
+
+	POD_PHASE=""
+	progress_extra() {
+		local p
+		p=$(kubectl_ get pod payload-test -n default --no-headers 2>/dev/null)
+		[ -n "$p" ] && say "k3s: | pod: $p"
+	}
+	if ! wait_until "$K3S_PODTIMEOUT" "k3s test pod" pod_done; then
+		POLL_INTERVAL=2
+		say "k3s: pod description:"
+		kubectl_ describe pod payload-test -n default 2>&1 | tail -25
+		k3s_fail "test pod did not finish within ${K3S_PODTIMEOUT}s"
+		return 1
+	fi
+	if [ "$POD_PHASE" = Failed ]; then
+		kubectl_ describe pod payload-test -n default 2>&1 | tail -25
+		k3s_fail "test pod failed"
+		return 1
+	fi
+
+	local logs
+	logs=$(kubectl_ logs payload-test -n default 2>&1)
+	say "k3s: logs of pod payload-test:"
+	printf '%s\n' "$logs"
+	case "$logs" in
+	*"$HELLO_TEXT"*) ;;
+	*)
+		k3s_fail "pod logs did not carry '$HELLO_TEXT' \
+(got: ${logs//$'\n'/ | })"
+		return 1
+		;;
+	esac
+
+	K3S_RESULT=ok
+	marker K3S_OK
+	memline "after k3s"
+	stop_k3s
+	return 0
+}
+
+# ------------------------------------------------------------------- finish --
+fallback_shell() {
+	say "dropping to a shell on the console; exit to retry"
+	while :; do
+		setsid -c /bin/bash -l </dev/console >/dev/console 2>&1
+		sleep 1
+	done
+}
+
+finish() {
+	say "SUMMARY: docker=$DOCKER_RESULT k3s=$K3S_RESULT disk=$DISK_RESULT"
+	memline "final"
+	marker PAYLOAD_DONE
+	if [ "$DEBUG" = 1 ]; then
+		say "debug=1: not powering off"
+		fallback_shell
+	fi
+	sync
+	sleep 1
+	busybox poweroff -f 2>/dev/null
+	poweroff -f 2>/dev/null
+	echo o >/proc/sysrq-trigger 2>/dev/null
+	sleep 5
+	say "poweroff failed; halting"
+	while :; do sleep 3600; done
+}
+
+# Stage 2 runs as a fresh process after switch_root, so it reads the manifest
+# again rather than inheriting what stage 1 learned.
+read_variant() {
+	VARIANT=$(manifest_get variant)
+	[ -n "$VARIANT" ] || VARIANT=unknown
+	case "$VARIANT" in
+	docker | all | full) HAVE_DOCKER=1 ;;
+	esac
+	case "$VARIANT" in
+	k3s | all | full) HAVE_K3S=1 ;;
+	esac
+}
+
+# The docker-only and k3s-only images carry one stack each. Asking for the
+# other one is a command-line mistake, not a truncated image, so say which it
+# is rather than letting the test fail with a missing-binary message that looks
+# exactly like the failure the guard exists to catch.
+#
+# This sets three run flags rather than rewriting TEST, because the disk test
+# belongs to no variant: it depends on the guest having a block device, not on
+# what is in the image. Reducing test=all to test=docker on a docker-only
+# image, which is what this used to do, would have dropped the disk test with
+# it.
+select_tests() {
+	say "payload: image variant $VARIANT (docker=$HAVE_DOCKER k3s=$HAVE_K3S)"
+	case "$TEST" in
+	docker) RUN_DOCKER=1 ;;
+	k3s) RUN_K3S=1 ;;
+	disk) RUN_DISK=1 ;;
+	all) RUN_DOCKER=1 RUN_K3S=1 RUN_DISK=1 ;;
+	*)
+		say "payload: WARNING unknown test=$TEST, running the full set"
+		TEST=all
+		RUN_DOCKER=1 RUN_K3S=1 RUN_DISK=1
+		;;
+	esac
+
+	if [ "$RUN_DOCKER" = 1 ] && [ "$HAVE_DOCKER" = 0 ]; then
+		if [ "$TEST" = all ]; then
+			RUN_DOCKER=0
+			DOCKER_RESULT="skipped: not in this image variant"
+			say "payload: this image has no Docker stack, skipping the Docker test"
+		else
+			say "payload: WARNING test=docker on a $VARIANT image; it has no Docker stack"
+		fi
+	fi
+	if [ "$RUN_K3S" = 1 ] && [ "$HAVE_K3S" = 0 ]; then
+		if [ "$TEST" = all ]; then
+			RUN_K3S=0
+			K3S_RESULT="skipped: not in this image variant"
+			say "payload: this image has no K3s stack, skipping the K3s test"
+		else
+			say "payload: WARNING test=k3s on a $VARIANT image; it has no K3s stack"
+		fi
+	fi
+	say "payload: will run disk=$RUN_DISK docker=$RUN_DOCKER k3s=$RUN_K3S"
+}
+
+stage2() {
+	mount_fs
+	parse_cmdline
+	read_variant
+	[ "$QUIET_KERNEL" = 1 ] && dmesg -n 4 2>/dev/null
+	say "stage 2: root is $(awk '$2=="/" {print $3; exit}' /proc/mounts), test=$TEST"
+	rootfs_line "real root"
+	select_tests
+	setup_system
+	setup_network
+	memline "stage 2 start"
+
+	# Free whichever stack this run will not use before anything starts, the
+	# way the old per-test branches did. test=disk frees both.
+	[ "$RUN_DOCKER" = 1 ] || prune_docker
+	[ "$RUN_K3S" = 1 ] || prune_k3s
+
+	# The disk test first: it is the cheapest by a wide margin, it shares
+	# nothing with the other two, and a disk failure reported up front beats
+	# one reported behind several minutes of K3s.
+	[ "$RUN_DISK" = 1 ] && test_disk
+	if [ "$RUN_DOCKER" = 1 ]; then
+		test_docker
+		[ "$RUN_K3S" = 1 ] && prune_docker
+	fi
+	[ "$RUN_K3S" = 1 ] && test_k3s
+	finish
+}
+
+DOCKERD_PID=""
+CONTAINERD_PID=""
+K3S_PID=""
+DOCKER_ARGS=""
+POD_PHASE=""
+
+if [ -z "$PAYLOAD_STAGE2" ]; then
+	stage1
+else
+	stage2
+fi

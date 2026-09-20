@@ -1,0 +1,155 @@
+moby contrib/check-config.sh run against the final kernel config
+================================================================
+
+Config checked: kernel/config-7.2.6 (Linux 7.2.6, ARCH=riscv, defconfig + container.config)
+Script:         github.com/moby/moby, contrib/check-config.sh at master, commit a4c5b2be6f69f86fe7b13eb4822676f8d273cf8b
+                (last change to that file, 2026-06-16), fetched 2026-09-19
+How it was run: docker run --rm -v ./checks:/c -w /c debian:trixie sh /c/check-config-moby.sh /c/config-7.2.6
+
+Caveats, because this is an offline check of a config file and not of a running system:
+
+  * The "cgroup hierarchy", "Controllers", "sysctl" and "/dev/zfs" lines describe the
+    machine the script ran on (a container on the WSL2 host), not the kernel being
+    checked. Ignore them here; they will be re-checked when the guest boots.
+  * The script takes its version gates from `uname -r`, which reported the WSL2 host
+    kernel 6.6.x rather than 7.2.6. Every gate in the script is for 5.x and older, so
+    both versions take the same branches, and no check was skipped or added because
+    of this.
+  * BTRFS shows "enabled (as module)". It comes from the riscv defconfig, is not in
+    our fragment, and will not load, since the initrd has no modules. Overlayfs, the
+    storage driver we actually use, is built in.
+
+Missing items and whether they matter here:
+
+  * CONFIG_IP_SCTP: optional. Kubernetes supports SCTP service ports, but nothing in
+    this single-node, no-network test uses SCTP. Left out deliberately.
+  * CONFIG_CRYPTO_GHASH: the symbol no longer exists in 7.x. GHASH moved into
+    CONFIG_CRYPTO_LIB_GF128HASH (lib/crypto/Kconfig), which CONFIG_CRYPTO_GCM selects,
+    and it is =y in the final config. The script greps for the old name, so this line
+    is cosmetic.
+
+Raw output follows.
+================================================================
+
+WARNING: The requested image's platform (linux/riscv64) does not match the detected host platform (linux/amd64/v3) and no specific platform was requested
+info: reading kernel config from /c/config-7.2.6 ...
+
+Generally Necessary:
+- cgroup hierarchy: cgroupv2
+  Controllers:
+  - cpu: available
+  - cpuset: available
+  - io: available
+  - memory: available
+  - pids: available
+- CONFIG_NAMESPACES: enabled
+- CONFIG_NET_NS: enabled
+- CONFIG_PID_NS: enabled
+- CONFIG_IPC_NS: enabled
+- CONFIG_UTS_NS: enabled
+- CONFIG_CGROUPS: enabled
+- CONFIG_CGROUP_CPUACCT: enabled
+- CONFIG_CGROUP_DEVICE: enabled
+- CONFIG_CGROUP_FREEZER: enabled
+- CONFIG_CGROUP_SCHED: enabled
+- CONFIG_CPUSETS: enabled
+- CONFIG_MEMCG: enabled
+- CONFIG_KEYS: enabled
+- CONFIG_VETH: enabled
+- CONFIG_BRIDGE: enabled
+- CONFIG_BRIDGE_NETFILTER: enabled
+- CONFIG_IP_NF_FILTER: enabled
+- CONFIG_IP_NF_MANGLE: enabled
+- CONFIG_IP_NF_TARGET_MASQUERADE: enabled
+- CONFIG_IP6_NF_FILTER: enabled
+- CONFIG_IP6_NF_MANGLE: enabled
+- CONFIG_IP6_NF_TARGET_MASQUERADE: enabled
+- CONFIG_NETFILTER_XT_MATCH_ADDRTYPE: enabled
+- CONFIG_NETFILTER_XT_MATCH_CONNTRACK: enabled
+- CONFIG_NETFILTER_XT_MATCH_IPVS: enabled
+- CONFIG_NETFILTER_XT_MARK: enabled
+- CONFIG_IP_NF_RAW: enabled
+- CONFIG_IP_NF_NAT: enabled
+- CONFIG_NF_NAT: enabled
+- CONFIG_IP6_NF_RAW: enabled
+- CONFIG_IP6_NF_NAT: enabled
+- CONFIG_NF_NAT: enabled
+- CONFIG_POSIX_MQUEUE: enabled
+- CONFIG_CGROUP_BPF: enabled
+
+Optional Features:
+- CONFIG_USER_NS: enabled
+- CONFIG_SECCOMP: enabled
+- CONFIG_SECCOMP_FILTER: enabled
+- CONFIG_CGROUP_PIDS: enabled
+    (cgroup swap accounting is currently enabled)
+- CONFIG_BLK_CGROUP: enabled
+- CONFIG_BLK_DEV_THROTTLING: enabled
+- CONFIG_CGROUP_PERF: enabled
+- CONFIG_CGROUP_HUGETLB: enabled
+- CONFIG_NET_CLS_CGROUP: enabled
+- CONFIG_CGROUP_NET_PRIO: enabled
+- CONFIG_CFS_BANDWIDTH: enabled
+- CONFIG_FAIR_GROUP_SCHED: enabled
+- CONFIG_IP_NF_TARGET_REDIRECT: enabled
+- CONFIG_IP_SCTP: missing
+- CONFIG_IP_VS: enabled
+- CONFIG_IP_VS_NFCT: enabled
+- CONFIG_IP_VS_PROTO_TCP: enabled
+- CONFIG_IP_VS_PROTO_UDP: enabled
+- CONFIG_IP_VS_RR: enabled
+- CONFIG_SECURITY_SELINUX: enabled
+- CONFIG_SECURITY_APPARMOR: enabled
+- CONFIG_NFT_CT: enabled
+- CONFIG_NFT_FIB_IPV4: enabled
+- CONFIG_NFT_FIB_IPV6: enabled
+- CONFIG_NFT_FIB: enabled
+- CONFIG_NFT_MASQ: enabled
+- CONFIG_NFT_NAT: enabled
+- CONFIG_NF_TABLES: enabled
+- CONFIG_EXT4_FS: enabled
+- CONFIG_EXT4_FS_POSIX_ACL: enabled
+- CONFIG_EXT4_FS_SECURITY: enabled
+- Network Drivers:
+  - "bridge":
+/c/check-config-moby.sh: 132: sysctl: not found
+/c/check-config-moby.sh: 132: sysctl: not found
+/c/check-config-moby.sh: 132: sysctl: not found
+  - "overlay":
+    - CONFIG_VXLAN: enabled
+    - CONFIG_BRIDGE_VLAN_FILTERING: enabled
+      Optional (for encrypted networks):
+      - CONFIG_CRYPTO: enabled
+      - CONFIG_CRYPTO_AEAD: enabled
+      - CONFIG_CRYPTO_GCM: enabled
+      - CONFIG_CRYPTO_SEQIV: enabled
+      - CONFIG_CRYPTO_GHASH: missing
+      - CONFIG_XFRM: enabled
+      - CONFIG_XFRM_USER: enabled
+      - CONFIG_XFRM_ALGO: enabled
+      - CONFIG_INET_ESP: enabled
+      - CONFIG_NETFILTER_XT_MATCH_BPF: enabled
+  - "ipvlan":
+    - CONFIG_IPVLAN: enabled
+  - "macvlan":
+    - CONFIG_MACVLAN: enabled
+    - CONFIG_DUMMY: enabled
+  - "ftp,tftp client in container":
+    - CONFIG_NF_NAT_FTP: enabled
+    - CONFIG_NF_CONNTRACK_FTP: enabled
+    - CONFIG_NF_NAT_TFTP: enabled
+    - CONFIG_NF_CONNTRACK_TFTP: enabled
+- Storage Drivers:
+  - "btrfs":
+    - CONFIG_BTRFS_FS: enabled (as module)
+    - CONFIG_BTRFS_FS_POSIX_ACL: enabled
+  - "overlay":
+    - CONFIG_OVERLAY_FS: enabled
+  - "zfs":
+    - /dev/zfs: missing
+    - zfs command: missing
+    - zpool command: missing
+
+Limits:
+- /proc/sys/kernel/keys/root_maxkeys: 1000000
+

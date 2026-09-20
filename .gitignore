@@ -1,0 +1,7 @@
+# Build outputs: 1.4 GB of initrd archives and the kernel binaries.
+# Reproducible with initrd/build.sh; the .sha256 sidecars are kept so the
+# artifacts stay verifiable without being stored here.
+*.cpio.gz
+*.cpio.zst
+kernel/Image
+kernel/Image.gz

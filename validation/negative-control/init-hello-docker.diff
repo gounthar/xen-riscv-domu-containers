@@ -1,0 +1,11 @@
+--- init
++++ init.neg-docker
+@@ -742,7 +742,7 @@
+ 	# text match.
+ 	local out
+ 	out=$(timeout "$DOCKER_TIMEOUT" docker run --rm --network none \
+-		"$HELLO_IMAGE" 2>&1)
++		"$BUSYBOX_IMAGE" echo NEGATIVE_CONTROL 2>&1)
+ 	say "docker: output of $HELLO_IMAGE:"
+ 	printf '%s\n' "$out"
+ 	case "$out" in

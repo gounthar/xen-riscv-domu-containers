@@ -1,0 +1,11 @@
+--- init
++++ init.neg-disk
+@@ -884,7 +884,7 @@
+ 	fi
+ 	say "disk: $fs filesystem created on $DISK_DEV and mounted at $DISK_MNT"
+ 
+-	if ! printf '%s\n' "$token" >"$DISK_MNT/payload-disk-test" 2>/dev/null; then
++	if ! printf '%s\n' "NEGATIVE_CONTROL" >"$DISK_MNT/payload-disk-test" 2>/dev/null; then
+ 		disk_fail "could not write a file to the $fs filesystem"
+ 		return 1
+ 	fi

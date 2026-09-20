@@ -1,0 +1,11 @@
+--- init	2026-09-19 23:28:41.991449400 +0200
++++ /tmp/claude-1000/-mnt-c-support-users-dev-riscv-rise-sponsorship/c9b440b7-3df6-4f30-a95f-03787f1fe5ab/scratchpad/boot/../neg/root/init	2026-09-20 00:15:15.476474689 +0200
+@@ -469,7 +469,7 @@
+ 
+ 	local out
+ 	out=$(timeout "$DOCKER_TIMEOUT" docker run --rm --network none \
+-		"$BUSYBOX_IMAGE" echo DOCKER_OK 2>&1)
++		"$BUSYBOX_IMAGE" echo NEGATIVE_CONTROL 2>&1)
+ 	if [ "$out" != "DOCKER_OK" ]; then
+ 		docker_fail "container run did not print the marker (got: ${out//$'\n'/ | })"
+ 		return 1

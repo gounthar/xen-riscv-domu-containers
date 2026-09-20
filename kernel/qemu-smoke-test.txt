@@ -1,0 +1,36 @@
+QEMU smoke test of kernel/Image (no initrd)
+===========================================
+
+This only proves the Image boots on qemu-system-riscv64 -M virt and that the
+serial console works. There was no initrd to boot into when this was run, so the
+kernel panics at the end, which is the expected outcome.
+
+QEMU 10.0.13 (Debian trixie package), run in a container because qemu is not
+installed on the WSL2 host:
+
+  docker run --rm -v "$PWD:/work" qemu-riscv:trixie \
+    qemu-system-riscv64 -M virt -m 1G -smp 2 -nographic \
+      -kernel /work/Image -append "console=ttyS0 panic=1"
+
+Selected lines from the boot (full log kept out of the repo, 12378 lines because
+panic=1 makes it loop):
+
+[    0.000000] Booting Linux on hartid 0
+[    0.000000] Linux version 7.2.6 (@3b2d2172f0a8) (riscv64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0, GNU ld (GNU Binutils for Debian) 2.44) #1 SMP PREEMPT Sat Sep 19 20:58:08 UTC 2026
+[    0.000000] Machine model: riscv-virtio,qemu
+[    0.000000] Kernel command line: console=ttyS0 panic=1
+[    3.221606] Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled
+[    3.302843] 10000000.serial: ttyS0 at MMIO 0x10000000 (irq = 12, base_baud = 230400) is a 16550A
+[    3.308036] printk: legacy console [ttyS0] enabled
+[    7.490585] VFS: Cannot open root device "" or unknown-block(0,0): error -6
+[    7.505435] Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block(0,0)
+
+Reading of that:
+
+  * "console [ttyS0] enabled" and the 16550A line at MMIO 0x10000000 confirm the
+    8250 driver is built in and console=ttyS0 is the right console argument for
+    -M virt. No earlycon was needed.
+  * The panic is "VFS: Unable to mount root fs", i.e. no root and no initrd was
+    given. With -initrd it should reach /init instead.
+  * Nothing about cgroups appears in the log because the kernel never reached
+    userspace. cgroup v2 mounting still needs checking on the real boot.

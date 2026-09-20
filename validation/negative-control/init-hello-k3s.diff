@@ -1,0 +1,13 @@
+--- init
++++ init.neg-k3s
+@@ -1026,8 +1026,9 @@
+ 		  restartPolicy: Never
+ 		  containers:
+ 		  - name: test
+-		    image: $HELLO_IMAGE
++		    image: $BUSYBOX_IMAGE
+ 		    imagePullPolicy: Never
++		    command: ["sh", "-c", "echo NEGATIVE_CONTROL"]
+ 	EOF
+ 	if ! wait_until 300 "k3s pod apply" kubectl_ apply -f /tmp/payload-test.yaml; then
+ 		POLL_INTERVAL=2

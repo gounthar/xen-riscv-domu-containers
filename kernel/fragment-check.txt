@@ -1,0 +1,170 @@
+Fragment check: every symbol in container.config against the final .config
+=========================================================================
+
+Produced by kernel/check-fragment.py, which parses the fragment and the final
+config and compares them symbol by symbol, and additionally looks each symbol up
+in the kernel tree's Kconfig files so a symbol that does not exist is reported as
+"NO SUCH SYMBOL" rather than as a silent drop.
+
+  python3 check-fragment.py container.config linux-7.2.6/.config linux-7.2.6
+
+Config: Linux 7.2.6, ARCH=riscv, arch/riscv/configs/defconfig + container.config,
+then `make olddefconfig`.
+
+Result: 141 of 141 symbols got the value the fragment asked for. Nothing dropped.
+
+Two symbols were removed from the fragment after the first run reported them as
+NO SUCH SYMBOL in 7.2.6, and the reasons are written into container.config:
+
+  * CONFIG_CGROUP_NS: no such Kconfig symbol. Cgroup namespaces are built
+    unconditionally, kernel/cgroup/Makefile has namespace.o in obj-y.
+  * CONFIG_CRYPTO_GHASH: folded into CONFIG_CRYPTO_LIB_GF128HASH
+    (lib/crypto/Kconfig), which CONFIG_CRYPTO_GCM selects. It is =y in the final
+    config under the new name.
+
+Full output follows.
+=========================================================================
+
+ok              CONFIG_BLK_DEV_INITRD  want=y got=y
+ok              CONFIG_RD_GZIP  want=y got=y
+ok              CONFIG_DEVTMPFS  want=y got=y
+ok              CONFIG_DEVTMPFS_MOUNT  want=y got=y
+ok              CONFIG_IKCONFIG  want=y got=y
+ok              CONFIG_IKCONFIG_PROC  want=y got=y
+ok              CONFIG_NAMESPACES  want=y got=y
+ok              CONFIG_UTS_NS  want=y got=y
+ok              CONFIG_IPC_NS  want=y got=y
+ok              CONFIG_PID_NS  want=y got=y
+ok              CONFIG_NET_NS  want=y got=y
+ok              CONFIG_USER_NS  want=y got=y
+ok              CONFIG_CGROUPS  want=y got=y
+ok              CONFIG_MEMCG  want=y got=y
+ok              CONFIG_CGROUP_PIDS  want=y got=y
+ok              CONFIG_CPUSETS  want=y got=y
+ok              CONFIG_CGROUP_SCHED  want=y got=y
+ok              CONFIG_FAIR_GROUP_SCHED  want=y got=y
+ok              CONFIG_CFS_BANDWIDTH  want=y got=y
+ok              CONFIG_CGROUP_CPUACCT  want=y got=y
+ok              CONFIG_CGROUP_DEVICE  want=y got=y
+ok              CONFIG_CGROUP_FREEZER  want=y got=y
+ok              CONFIG_BPF_SYSCALL  want=y got=y
+ok              CONFIG_CGROUP_BPF  want=y got=y
+ok              CONFIG_BPF_JIT  want=y got=y
+ok              CONFIG_BLK_CGROUP  want=y got=y
+ok              CONFIG_BLK_DEV_THROTTLING  want=y got=y
+ok              CONFIG_CGROUP_PERF  want=y got=y
+ok              CONFIG_HUGETLBFS  want=y got=y
+ok              CONFIG_CGROUP_HUGETLB  want=y got=y
+ok              CONFIG_NET_SCHED  want=y got=y
+ok              CONFIG_NET_CLS_CGROUP  want=y got=y
+ok              CONFIG_CGROUP_NET_PRIO  want=y got=y
+ok              CONFIG_OVERLAY_FS  want=y got=y
+ok              CONFIG_TMPFS  want=y got=y
+ok              CONFIG_TMPFS_XATTR  want=y got=y
+ok              CONFIG_TMPFS_POSIX_ACL  want=y got=y
+ok              CONFIG_POSIX_MQUEUE  want=y got=y
+ok              CONFIG_KEYS  want=y got=y
+ok              CONFIG_SECCOMP  want=y got=y
+ok              CONFIG_SECCOMP_FILTER  want=y got=y
+ok              CONFIG_EXT4_FS  want=y got=y
+ok              CONFIG_EXT4_FS_POSIX_ACL  want=y got=y
+ok              CONFIG_EXT4_FS_SECURITY  want=y got=y
+ok              CONFIG_VETH  want=y got=y
+ok              CONFIG_BRIDGE  want=y got=y
+ok              CONFIG_BRIDGE_NETFILTER  want=y got=y
+ok              CONFIG_BRIDGE_VLAN_FILTERING  want=y got=y
+ok              CONFIG_VXLAN  want=y got=y
+ok              CONFIG_DUMMY  want=y got=y
+ok              CONFIG_MACVLAN  want=y got=y
+ok              CONFIG_IPVLAN  want=y got=y
+ok              CONFIG_NETFILTER  want=y got=y
+ok              CONFIG_NETFILTER_ADVANCED  want=y got=y
+ok              CONFIG_NF_CONNTRACK  want=y got=y
+ok              CONFIG_NF_NAT  want=y got=y
+ok              CONFIG_NF_CT_NETLINK  want=y got=y
+ok              CONFIG_NF_CONNTRACK_FTP  want=y got=y
+ok              CONFIG_NF_CONNTRACK_TFTP  want=y got=y
+ok              CONFIG_NF_NAT_FTP  want=y got=y
+ok              CONFIG_NF_NAT_TFTP  want=y got=y
+ok              CONFIG_NETFILTER_XTABLES  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_ADDRTYPE  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_CONNTRACK  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_IPVS  want=y got=y
+ok              CONFIG_NETFILTER_XT_MARK  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_COMMENT  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_MULTIPORT  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_STATISTIC  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_RECENT  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_PHYSDEV  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_PKTTYPE  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_LIMIT  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_TCPMSS  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_OWNER  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_SOCKET  want=y got=y
+ok              CONFIG_NETFILTER_XT_MATCH_BPF  want=y got=y
+ok              CONFIG_NETFILTER_XT_TARGET_TCPMSS  want=y got=y
+ok              CONFIG_NETFILTER_XT_TARGET_CHECKSUM  want=y got=y
+ok              CONFIG_NETFILTER_XT_TARGET_LOG  want=y got=y
+ok              CONFIG_NETFILTER_XT_TARGET_NFLOG  want=y got=y
+ok              CONFIG_NETFILTER_XT_TARGET_REDIRECT  want=y got=y
+ok              CONFIG_NETFILTER_XT_TARGET_MASQUERADE  want=y got=y
+ok              CONFIG_NETFILTER_XT_TARGET_CT  want=y got=y
+ok              CONFIG_NETFILTER_XT_NAT  want=y got=y
+ok              CONFIG_NETFILTER_XT_CONNMARK  want=y got=y
+ok              CONFIG_NETFILTER_XT_SET  want=y got=y
+ok              CONFIG_NETFILTER_XTABLES_LEGACY  want=y got=y
+ok              CONFIG_IP_NF_IPTABLES  want=y got=y
+ok              CONFIG_IP_NF_IPTABLES_LEGACY  want=y got=y
+ok              CONFIG_IP_NF_FILTER  want=y got=y
+ok              CONFIG_IP_NF_NAT  want=y got=y
+ok              CONFIG_IP_NF_TARGET_MASQUERADE  want=y got=y
+ok              CONFIG_IP_NF_TARGET_REJECT  want=y got=y
+ok              CONFIG_IP_NF_MANGLE  want=y got=y
+ok              CONFIG_IP_NF_RAW  want=y got=y
+ok              CONFIG_IP_NF_TARGET_REDIRECT  want=y got=y
+ok              CONFIG_IP6_NF_IPTABLES  want=y got=y
+ok              CONFIG_IP6_NF_IPTABLES_LEGACY  want=y got=y
+ok              CONFIG_IP6_NF_FILTER  want=y got=y
+ok              CONFIG_IP6_NF_MANGLE  want=y got=y
+ok              CONFIG_IP6_NF_RAW  want=y got=y
+ok              CONFIG_IP6_NF_NAT  want=y got=y
+ok              CONFIG_IP6_NF_TARGET_MASQUERADE  want=y got=y
+ok              CONFIG_IP6_NF_TARGET_REJECT  want=y got=y
+ok              CONFIG_NF_TABLES  want=y got=y
+ok              CONFIG_NF_TABLES_INET  want=y got=y
+ok              CONFIG_NF_TABLES_IPV4  want=y got=y
+ok              CONFIG_NF_TABLES_IPV6  want=y got=y
+ok              CONFIG_NFT_CT  want=y got=y
+ok              CONFIG_NFT_NAT  want=y got=y
+ok              CONFIG_NFT_MASQ  want=y got=y
+ok              CONFIG_NFT_REDIR  want=y got=y
+ok              CONFIG_NFT_REJECT  want=y got=y
+ok              CONFIG_NFT_FIB_INET  want=y got=y
+ok              CONFIG_NFT_FIB_IPV4  want=y got=y
+ok              CONFIG_NFT_FIB_IPV6  want=y got=y
+ok              CONFIG_NFT_COMPAT  want=y got=y
+ok              CONFIG_NFT_NUMGEN  want=y got=y
+ok              CONFIG_NFT_LIMIT  want=y got=y
+ok              CONFIG_NFT_LOG  want=y got=y
+ok              CONFIG_IP_SET  want=y got=y
+ok              CONFIG_IP_SET_HASH_IP  want=y got=y
+ok              CONFIG_IP_SET_HASH_IPPORT  want=y got=y
+ok              CONFIG_IP_SET_HASH_IPPORTIP  want=y got=y
+ok              CONFIG_IP_SET_HASH_IPPORTNET  want=y got=y
+ok              CONFIG_IP_SET_HASH_NET  want=y got=y
+ok              CONFIG_IP_SET_HASH_NETPORT  want=y got=y
+ok              CONFIG_IP_SET_BITMAP_PORT  want=y got=y
+ok              CONFIG_IP_SET_LIST_SET  want=y got=y
+ok              CONFIG_IP_VS  want=y got=y
+ok              CONFIG_IP_VS_NFCT  want=y got=y
+ok              CONFIG_IP_VS_PROTO_TCP  want=y got=y
+ok              CONFIG_IP_VS_PROTO_UDP  want=y got=y
+ok              CONFIG_IP_VS_RR  want=y got=y
+ok              CONFIG_CRYPTO  want=y got=y
+ok              CONFIG_CRYPTO_AEAD  want=y got=y
+ok              CONFIG_CRYPTO_GCM  want=y got=y
+ok              CONFIG_CRYPTO_SEQIV  want=y got=y
+ok              CONFIG_XFRM_USER  want=y got=y
+ok              CONFIG_INET_ESP  want=y got=y
+
+141 symbols in fragment, 141 ok, 0 not as requested
