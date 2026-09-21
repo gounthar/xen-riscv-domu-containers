@@ -514,6 +514,10 @@ ln -sf /proc/self/fd/1 /dev/stdout
 ln -sf /proc/self/fd/2 /dev/stderr
 ```
 
+A dom0 image built from `xen-riscv-builder` after 2026-09-21 does this in its rcS, along
+with mounting devpts; four runs with a disk attached completed `block add` with no manual
+step.
+
 To see where a hotplug script hangs, trace it to a file before the create, so the trace
 survives the kill: `sed -i '1a exec 2>>/var/log/xen/block-trace.log; set -x'
 /etc/xen/scripts/block`.
@@ -533,9 +537,11 @@ ring page comes from a fixed parameter, not from a grant.
 
 ### Host speed decides K3s
 
-With that config, K3s passed under Xen twice out of two on a native Linux host with an
+With that config, K3s passed under Xen six times out of six on a native Linux host with an
 AMD Ryzen 5 230: kubeconfig after 15-18 s, node Ready after 49-77 s, the test pod done
-after 45-60 s, no restart. On
+after 45-62 s, no restart. Two of those runs used a Xen and a guest kernel carrying debug
+instruments; the other four (2026-09-21 night) used builds with the instruments removed,
+keeping only the sstc workaround and the event-channel experiment. On
 an i9-12900H laptop under WSL2 the same image ran about 3x slower. There, K3s once exited
 on its own startup deadline (`failed to create crd ... context canceled`) and once reached
 node Ready after 339 s, after which the server exited during the pod wait, once with
