@@ -25,6 +25,7 @@
 #   keep=1                do not delete the unused stack to free RAM
 #   k3s.full=1            keep traefik, servicelb and metrics-server enabled
 #   k3s.cfgtimeout=SEC    budget for the server to write its kubeconfig (default 120)
+#   k3s.restarts=N        restart the server this many times if it exits (default 0)
 #   k3s.timeout=SECONDS   budget for the node to become Ready (default 1800)
 #   k3s.podtimeout=SEC    budget for the test pod (default 900)
 #   docker.timeout=SEC    budget for the Docker test (default 600)
@@ -50,6 +51,7 @@ DEBUG=0
 KEEP=0
 K3S_FULL=0
 K3S_CFGTIMEOUT=120
+K3S_RESTARTS=0
 K3S_TIMEOUT=1800
 K3S_PODTIMEOUT=900
 DOCKER_TIMEOUT=600
@@ -267,6 +269,7 @@ parse_cmdline() {
 		keep=*) KEEP=${w#keep=} ;;
 		k3s.full=*) K3S_FULL=${w#k3s.full=} ;;
 		k3s.cfgtimeout=*) K3S_CFGTIMEOUT=${w#k3s.cfgtimeout=} ;;
+		k3s.restarts=*) K3S_RESTARTS=${w#k3s.restarts=} ;;
 		k3s.timeout=*) K3S_TIMEOUT=${w#k3s.timeout=} ;;
 		k3s.podtimeout=*) K3S_PODTIMEOUT=${w#k3s.podtimeout=} ;;
 		docker.timeout=*) DOCKER_TIMEOUT=${w#docker.timeout=} ;;
@@ -285,6 +288,9 @@ parse_cmdline() {
 }
 
 # wait_until <timeout> <label> <command...>: poll until the command succeeds.
+# Returns 0 on success, 1 on timeout, and 2 as soon as WAIT_PID (if set) has
+# exited: waiting out the budget on a dead process only hides the failure.
+WAIT_PID=""
 # POLL_INTERVAL is how long to sleep between attempts. Keep it high for checks
 # that run kubectl: each call forks the 200 MiB K3s multicall binary, and under
 # emulation that steals real CPU from the server it is waiting for.
@@ -302,6 +308,10 @@ wait_until() {
 		fi
 		now=$(date +%s)
 		elapsed=$((now - start))
+		if [ -n "$WAIT_PID" ] && proc_gone "$WAIT_PID"; then
+			say "$label: process $WAIT_PID exited after ${elapsed}s"
+			return 2
+		fi
 		if [ "$elapsed" -ge "$timeout" ]; then
 			say "$label: TIMEOUT after ${elapsed}s"
 			return 1
@@ -955,6 +965,62 @@ stop_k3s() {
 	K3S_PID=""
 }
 
+start_k3s_server() {
+	PATH="$K3S_PATH" "$K3S_BIN/k3s" server \
+		--data-dir "$K3S_DATA" \
+		${K3S_DISABLE:+--disable "$K3S_DISABLE"} \
+		--write-kubeconfig-mode 644 \
+		--node-name domu \
+		'--kubelet-arg=eviction-hard=memory.available<32Mi,nodefs.available<2%,imagefs.available<2%' \
+		>>/var/log/k3s.log 2>&1 &
+	K3S_PID=$!
+}
+
+# k3s_wait <timeout> <label> <command...>: wait_until, watching the server.
+# If the server exits, restart it (same data dir, so the datastore and the
+# imported images survive) up to K3S_RESTARTS times across the whole test,
+# within what is left of this phase's budget. Returns like wait_until; 2 means
+# the server exited and no restart was left, and K3S_EXITED holds the reason.
+K3S_RESTART_N=0
+K3S_EXITED=""
+k3s_wait() {
+	local timeout=$1 label=$2 t0 left rc code
+	shift 2
+	t0=$(date +%s)
+	while :; do
+		left=$((timeout - ($(date +%s) - t0)))
+		[ "$left" -gt 0 ] || left=1
+		WAIT_PID=$K3S_PID
+		wait_until "$left" "$label" "$@"
+		rc=$?
+		WAIT_PID=""
+		[ "$rc" -eq 2 ] || return "$rc"
+		wait "$K3S_PID" 2>/dev/null
+		code=$?
+		K3S_EXITED="k3s server exited with status $code: \
+$(grep -a 'level=fatal' /var/log/k3s.log 2>/dev/null | tail -1 | cut -c1-200)"
+		say "k3s: $K3S_EXITED"
+		if [ "$K3S_RESTART_N" -ge "$K3S_RESTARTS" ]; then
+			K3S_PID=""
+			return 2
+		fi
+		K3S_RESTART_N=$((K3S_RESTART_N + 1))
+		say "k3s: restarting the server ($K3S_RESTART_N/$K3S_RESTARTS)"
+		memline "k3s restart $K3S_RESTART_N"
+		start_k3s_server
+	done
+}
+
+# k3s_phase_fail <rc> <timeout message>: report a failed k3s_wait.
+k3s_phase_fail() {
+	POLL_INTERVAL=2
+	if [ "$1" -eq 2 ]; then
+		k3s_fail "$K3S_EXITED (restarts used: $K3S_RESTART_N/$K3S_RESTARTS)"
+	else
+		k3s_fail "$2"
+	fi
+}
+
 test_k3s() {
 	say "=== K3s test (node timeout ${K3S_TIMEOUT}s, pod timeout ${K3S_PODTIMEOUT}s) ==="
 	memline "before k3s"
@@ -965,9 +1031,9 @@ test_k3s() {
 	say "k3s: $("$K3S_BIN/k3s" --version 2>&1 | head -1)"
 	say "k3s: airgap images present: $(ls "$IMAGES_DIR" 2>/dev/null | tr '\n' ' ')"
 
-	local disable="traefik,servicelb,metrics-server"
+	K3S_DISABLE="traefik,servicelb,metrics-server"
 	if [ "$K3S_FULL" = 1 ]; then
-		disable=""
+		K3S_DISABLE=""
 		say "k3s: k3s.full=1, nothing disabled"
 		local missing=""
 		[ -f "$IMAGES_DIR/mirrored-library-traefik-3.7.13.tar" ] || missing="traefik "
@@ -980,15 +1046,10 @@ test_k3s() {
 	# The k3s stub binary is not shipped: its embedded tarball is already
 	# unpacked at $K3S_DATA/data, which is how the upstream k3s container
 	# image runs too. The bundled bin comes first, aux (iptables) last.
-	local k3s_path="$K3S_BIN:$PATH:$K3S_BIN/aux"
-	PATH="$k3s_path" "$K3S_BIN/k3s" server \
-		--data-dir "$K3S_DATA" \
-		${disable:+--disable "$disable"} \
-		--write-kubeconfig-mode 644 \
-		--node-name domu \
-		'--kubelet-arg=eviction-hard=memory.available<32Mi,nodefs.available<2%,imagefs.available<2%' \
-		>/var/log/k3s.log 2>&1 &
-	K3S_PID=$!
+	K3S_PATH="$K3S_BIN:$PATH:$K3S_BIN/aux"
+	: >/var/log/k3s.log
+	say "k3s: server restarts allowed: $K3S_RESTARTS"
+	start_k3s_server
 
 	progress_extra() {
 		local l
@@ -998,15 +1059,19 @@ test_k3s() {
 rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 	}
 
-	if ! wait_until "$K3S_CFGTIMEOUT" "k3s kubeconfig" test -r /etc/rancher/k3s/k3s.yaml; then
+	local rc
+	k3s_wait "$K3S_CFGTIMEOUT" "k3s kubeconfig" test -r /etc/rancher/k3s/k3s.yaml
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
 		progress_extra
-		k3s_fail "k3s server did not write a kubeconfig"
+		k3s_phase_fail "$rc" "k3s server did not write a kubeconfig"
 		return 1
 	fi
 	POLL_INTERVAL=15
-	if ! wait_until "$K3S_TIMEOUT" "k3s node Ready" node_ready; then
-		POLL_INTERVAL=2
-		k3s_fail "node did not become Ready within ${K3S_TIMEOUT}s"
+	k3s_wait "$K3S_TIMEOUT" "k3s node Ready" node_ready
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		k3s_phase_fail "$rc" "node did not become Ready within ${K3S_TIMEOUT}s"
 		return 1
 	fi
 	progress_extra() { :; }
@@ -1032,9 +1097,10 @@ rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 		    image: $HELLO_IMAGE
 		    imagePullPolicy: Never
 	EOF
-	if ! wait_until 300 "k3s pod apply" kubectl_ apply -f /tmp/payload-test.yaml; then
-		POLL_INTERVAL=2
-		k3s_fail "could not create the test pod"
+	k3s_wait 300 "k3s pod apply" kubectl_ apply -f /tmp/payload-test.yaml
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		k3s_phase_fail "$rc" "could not create the test pod"
 		return 1
 	fi
 
@@ -1044,11 +1110,14 @@ rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 		p=$(kubectl_ get pod payload-test -n default --no-headers 2>/dev/null)
 		[ -n "$p" ] && say "k3s: | pod: $p"
 	}
-	if ! wait_until "$K3S_PODTIMEOUT" "k3s test pod" pod_done; then
-		POLL_INTERVAL=2
-		say "k3s: pod description:"
-		kubectl_ describe pod payload-test -n default 2>&1 | tail -25
-		k3s_fail "test pod did not finish within ${K3S_PODTIMEOUT}s"
+	k3s_wait "$K3S_PODTIMEOUT" "k3s test pod" pod_done
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		if [ "$rc" -eq 1 ]; then
+			say "k3s: pod description:"
+			kubectl_ describe pod payload-test -n default 2>&1 | tail -25
+		fi
+		k3s_phase_fail "$rc" "test pod did not finish within ${K3S_PODTIMEOUT}s"
 		return 1
 	fi
 	if [ "$POD_PHASE" = Failed ]; then
@@ -1070,7 +1139,11 @@ rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 		;;
 	esac
 
-	K3S_RESULT=ok
+	if [ "$K3S_RESTART_N" -gt 0 ]; then
+		K3S_RESULT="ok (after $K3S_RESTART_N server restart(s))"
+	else
+		K3S_RESULT=ok
+	fi
 	marker K3S_OK
 	memline "after k3s"
 	stop_k3s

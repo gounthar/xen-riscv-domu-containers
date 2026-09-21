@@ -331,6 +331,7 @@ and harmless.
 | `keep=1` | off | do not delete the unused stack or the imported image tars |
 | `k3s.full=1` | off | do not disable traefik, servicelb and metrics-server |
 | `k3s.cfgtimeout=SEC` | 120 | budget for the K3s server to write its kubeconfig; raise it under Xen (see below) |
+| `k3s.restarts=N` | 0 | restart the K3s server up to N times if it exits; a server that exits is now reported at once rather than waited on |
 | `k3s.timeout=SEC` | 1800 | budget for the node to reach Ready |
 | `k3s.podtimeout=SEC` | 900 | budget for the test pod |
 | `docker.timeout=SEC` | 600 | budget for each `docker run` |
