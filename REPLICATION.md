@@ -397,18 +397,23 @@ needed the three subsections that follow this paragraph, two of which change cod
 Xen's toolstack or the guest kernel. K3s under Xen, netfront and blkfront are **not**
 shown; see "What has not been tested".
 
-### The guest needs `sstc` in its ISA string, and libxl leaves it out
+### Without `sstc` the guest can livelock under TCG, and the workaround is only safe for one vCPU
 
 `tools/libs/light/libxl_riscv.c:25` hardcodes the domU's `riscv,isa` as
 `"rv64imafdc_ssaia"`. Xen already enables the extension for every guest vcpu
 (`xen/arch/riscv/domain.c:523`, `ENVCFG_STCE`) and dom0 gets it from the host device
 tree, but the domU is not told (the string read `"rv64imafdc_sstc"` until a later
-commit replaced `sstc` with `ssaia` instead of adding it). Linux then programs its timer through SBI
+commit removed `sstc`, consistent with guest Sstc being unsupported, see below). Linux then programs its timer through SBI
 `set_timer`, two world switches per tick. Under TCG a tick costs 7-15 ms against a
 4 ms period and the guest livelocks one instruction after `local_irq_enable()`: last
 line `sched_clock: 64 bits at 10MHz`, QEMU at 100% CPU, nothing more, ever.
 
-Fix, one string, then rebuild the tools and the dom0 initrd:
+Guest-side Sstc is not supported on this branch yet, deliberately: Xen does not save or
+restore `vstimecmp` on a context switch, so a guest using Sstc would have its timer
+clobbered whenever another vCPU runs on the same physical CPU. The upstream plan lists it
+as future work. **The change below is a workaround, safe only with one vCPU per physical
+CPU** (we run `sched=null`, `dom0_max_vcpus=1` and a 1-vCPU domU). With it, rebuild the
+tools and the dom0 initrd:
 
 ```c
 {"xen-3.0-riscv64", "riscv,timer", "riscv", "rv64imafdc_ssaia_sstc", "riscv,sv57"},
@@ -416,8 +421,8 @@ Fix, one string, then rebuild the tools and the dom0 initrd:
 
 The proof it took is in the guest's own log: a **second**
 `riscv-timer: Timer interrupt in S-mode is available via sstc extension` line (the first
-is dom0's). On hardware the SBI path may be fast enough to boot anyway; the omission is a
-defect either way.
+is dom0's). On hardware, or on a faster host, the SBI path may be fast enough to boot
+without it.
 
 ### The event-channel interrupt only clears on a guest exit
 
