@@ -497,13 +497,50 @@ extra = "console=hvc0 earlycon=sbi test=all net.addr=192.168.128.2/24 net.gw=192
 Add `k3s.restarts=3` too: the payload then restarts a K3s server that exits (same data
 dir), and in any case stops waiting on a dead one.
 
+### The `block` hotplug script needs `/dev/stdin`
+
+With a `disk =` line, `xl create` fails after a long pause:
+`killing execution of /etc/xen/scripts/block add because of timeout`, then the same for
+`block remove`. The script is not stuck on the disk. It is stuck in `claim_lock`
+(`tools/hotplug/Linux/locking.sh`), which loops until `stat -L /dev/stdin <lockfile>`
+succeeds. A dom0 whose `/dev` is only devtmpfs has no `/dev/stdin`, so the loop never
+ends. The vif script never takes that lock, which is why networking attaches and the disk
+does not. In dom0, before the create:
+
+```sh
+ln -sfn /proc/self/fd /dev/fd
+ln -sf /proc/self/fd/0 /dev/stdin
+ln -sf /proc/self/fd/1 /dev/stdout
+ln -sf /proc/self/fd/2 /dev/stderr
+```
+
+To see where a hotplug script hangs, trace it to a file before the create, so the trace
+survives the kill: `sed -i '1a exec 2>>/var/log/xen/block-trace.log; set -x'
+/etc/xen/scripts/block`.
+
+### Neither PV network nor PV disk works in the guest yet
+
+With the above, dom0 attaches both the vif and the disk. The guest then logs
+`xen:grant_table: grant table add_to_physmap failed, err=-38`, and every PV frontend
+fails after it: `vbd vbd-51712: 28 granting access to 1 ring pages` for the disk,
+`vif vif-0: no queues` / `22 creating queues` for the network. Error -38 is `ENOSYS`:
+on this branch, Xen's `xenmem_add_to_physmap_one()` (`xen/arch/riscv/mm.c`) does not
+handle `XENMAPSPACE_grant_table`, so the guest cannot map any grant-table frames and
+has no grant references to share its rings with. This is a hypervisor gap, not a
+configuration problem; ARM implements that case. Until it is filled, the payload falls
+back to `dummy0` for networking and skips the disk test. The console is unaffected: its
+ring page comes from a fixed parameter, not from a grant.
+
 ### Host speed decides K3s
 
-With that config, K3s passed under Xen on a native Linux host with an AMD Ryzen 5 230:
-kubeconfig after 18 s, node Ready after 77 s, the test pod done after 45 s, no restart. On
+With that config, K3s passed under Xen twice out of two on a native Linux host with an
+AMD Ryzen 5 230: kubeconfig after 15-18 s, node Ready after 49-77 s, the test pod done
+after 45-60 s, no restart. On
 an i9-12900H laptop under WSL2 the same image ran about 3x slower. There, K3s once exited
 on its own startup deadline (`failed to create crd ... context canceled`) and once reached
-node Ready after 339 s. Under TCG this stack sits close to K3s's internal deadlines, so run
+node Ready after 339 s, after which the server exited during the pod wait, once with
+status 0 and no error and once on the same CRD startup deadline, and restarts had not
+rescued it at the time of writing. Under TCG this stack sits close to K3s's internal deadlines, so run
 it on a fast, otherwise idle, native Linux host.
 
 ### Read the log by occurrence
@@ -904,24 +941,24 @@ all is still untested.
 
 ## What has not been tested
 
-- **K3s under Xen has passed once.** One run on one host (see "Host speed decides K3s");
+- **K3s under Xen has passed twice on one host** (see "Host speed decides K3s");
   on a slower host it is marginal. All results outside the dom0/domU section are from
   plain `-M virt` with no hypervisor.
 - **The domU that boots needs an experimental guest-kernel change** for the event-channel
   interrupt (above). No domU has booted on an unmodified guest kernel past that point.
 - **Nothing on riscv64 hardware.** All boots were TCG on x86_64.
-- **netfront and blkfront are not shown.** Under Xen the `vif` attaches on dom0's side
-  (`vif1.0` bridged), but the guest showed **no interface** and the payload fell back to
-  `dummy0`. No disk has been attached since the `block` hotplug script timed out, and that
-  timeout predates the bash, PATH and `/var/log/xen` fixes above. The network and disk results here are
+- **netfront and blkfront do not work in the guest.** dom0 attaches both (vif bridged,
+  `block add` completes once `/dev/stdin` exists), but the guest cannot map grant-table
+  frames (`add_to_physmap failed, err=-38`), so neither frontend can share its ring. See
+  "Neither PV network nor PV disk works in the guest yet". The network and disk results here are
   virtio: a `virtio_net` interface and a `/dev/vda` virtio-blk device. What is proven
   is that the payload handles a real interface and a real block device, not that the
   PV path works.
 - **Enabling the PV backends has not been shown to be sufficient.** That
   `xen_defconfig` compiles none is measured; that this is the whole reason there has
   never been PV networking on this port is inference.
-- **Only `vif-bridge` has run under a real libxl.** It completed and bridged `vif1.0`.
-  `block` timed out and has not been retried since the plumbing fixes.
+- **Both hotplug scripts have run under a real libxl.** `vif-bridge` bridged `vif1.0`;
+  `block add` completed once `/dev/stdin` existed.
 - **The `dom0_mem` fix is unconfirmed.** Moving it to Xen's command line is correct by
   construction, but no boot has yet both reached a shell and reported more than 512
   MiB of dom0 memory, so whether it resolves the OOM is open.
