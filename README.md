@@ -13,6 +13,12 @@
 >   MiB; see "RAM: the floor, and why the old numbers were wrong" in
 >   `initrd/NOTES.md`.
 > - It describes one initrd. There are four: `docker`, `k3s`, `all`, `full`.
+> - It says nothing has run under Xen. Since 2026-09-21 the payload has: a domU
+>   started through dom0 and `xl create`, under QEMU TCG, runs Docker and K3s
+>   (`SUMMARY: docker=ok k3s=ok`, six of six runs on a fast Linux host), with a
+>   Xen guest kernel from `baptleduc/linux-xen-riscv`, not the kernel described
+>   below. No PV network or disk yet, no hardware. See `REPLICATION.md`,
+>   "Notes for the dom0 and domU path".
 >
 > Kept rather than deleted because the prose around those numbers is still
 > accurate and `REPLICATION.md` links into it.
@@ -33,7 +39,8 @@ RAM, nothing is mounted from a disk, and the only network is a `dummy0`
 interface with a static address, which exists because K3s refuses to start
 without a default route.
 
-**Nothing here has been run under Xen.** Everything was developed and verified
+**Nothing here has been run under Xen.** *[Out of date since 2026-09-21; see the
+banner at the top.]* Everything was developed and verified
 on plain `qemu-system-riscv64 -M virt`, under TCG emulation on an x86_64 host.
 See "Not tested" at the end, which is the section to read before drawing any
 conclusion about Xen.
@@ -519,6 +526,8 @@ different `Image` checksum.
 Read this before concluding anything about Xen.
 
 **Nothing has been run under Xen.** No domU boot, no Xen build, no Xen host.
+*[Out of date: true when written, overtaken on 2026-09-21; see the banner at the top
+and `REPLICATION.md`. What follows about Linux 7.2.6 still holds.]*
 Every result in this repository comes from `qemu-system-riscv64 -M virt` with no
 hypervisor involved.
 

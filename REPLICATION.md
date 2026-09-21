@@ -530,8 +530,12 @@ fails after it: `vbd vbd-51712: 28 granting access to 1 ring pages` for the disk
 `vif vif-0: no queues` / `22 creating queues` for the network. Error -38 is `ENOSYS`:
 on this branch, Xen's `xenmem_add_to_physmap_one()` (`xen/arch/riscv/mm.c`) does not
 handle `XENMAPSPACE_grant_table`, so the guest cannot map any grant-table frames and
-has no grant references to share its rings with. This is a hypervisor gap, not a
-configuration problem; ARM implements that case. Until it is filled, the payload falls
+has no grant references to share its rings with. This is not a configuration problem.
+ARM implements that case, and porting it into Xen as an experiment (reverted) was enough
+for Xen to grow the guest's grant table (`Expanding d1 grant table from 1 to 2 frames`).
+The guest then oopsed in `gnttab_update_entry_v1`: in `baptleduc/linux-xen-riscv`,
+`arch_gnttab_map_shared()` (`arch/riscv/xen/grant-table.c`) also returns `-ENOSYS`. So it
+needs work on both sides, in Xen and in the guest kernel. Until it is filled, the payload falls
 back to `dummy0` for networking and skips the disk test. The console is unaffected: its
 ring page comes from a fixed parameter, not from a grant.
 
@@ -947,7 +951,7 @@ all is still untested.
 
 ## What has not been tested
 
-- **K3s under Xen has passed twice on one host** (see "Host speed decides K3s");
+- **K3s under Xen has passed six times on one host** (see "Host speed decides K3s");
   on a slower host it is marginal. All results outside the dom0/domU section are from
   plain `-M virt` with no hypervisor.
 - **The domU that boots needs an experimental guest-kernel change** for the event-channel
@@ -955,7 +959,9 @@ all is still untested.
 - **Nothing on riscv64 hardware.** All boots were TCG on x86_64.
 - **netfront and blkfront do not work in the guest.** dom0 attaches both (vif bridged,
   `block add` completes once `/dev/stdin` exists), but the guest cannot map grant-table
-  frames (`add_to_physmap failed, err=-38`), so neither frontend can share its ring. See
+  frames (`add_to_physmap failed, err=-38`), so neither frontend can share its ring.
+  Filling in Xen's side alone is not enough; the guest kernel's side is a stub too (see
+  below). See
   "Neither PV network nor PV disk works in the guest yet". The network and disk results here are
   virtio: a `virtio_net` interface and a `/dev/vda` virtio-blk device. What is proven
   is that the payload handles a real interface and a real block device, not that the

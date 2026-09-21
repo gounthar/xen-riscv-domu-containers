@@ -801,7 +801,7 @@ the domU. The layout invites that substitution, so it is written down here.
 
 | | `kernel/Image`, `kernel/config-7.2.6` | the domU kernel |
 |---|---|---|
-| Where | next to this payload | `/home/poddingue/xen-riscv/out/container/` (`Image`, `Image.gz`, `.config`, `System.map`) |
+| Where | next to this payload | `~/xen-riscv/out/container/` on the build machine (`Image`, `Image.gz`, `.config`, `System.map`) |
 | Built from | riscv `defconfig` + `kernel/container.config` | `baptleduc/linux-xen-riscv`, branch `6.18-xen-guest-support`, which carries the `arch/riscv/xen` commits |
 | Xen support | **none.** The only two lines matching `xen` are `CONFIG_NETXEN_NIC` and `CONFIG_MMC_SDHCI_XENON`, unrelated NIC and MMC drivers | `CONFIG_XEN=y`, `CONFIG_XEN_NETDEV_FRONTEND=y`, `CONFIG_XEN_BLKDEV_FRONTEND=y`, `CONFIG_XEN_XENBUS_FRONTEND=y`, `CONFIG_XEN_GNTDEV=y`, `CONFIG_XEN_GRANT_DMA_ALLOC=y`, and 145 `xennet_`/`blkfront_`/`xenbus_` symbols in `System.map` |
 | What it is for | plain-QEMU validation: every boot in this document | the Xen guest, where netfront and blkfront actually appear |
