@@ -24,6 +24,7 @@
 #   debug=1               drop to a shell instead of powering off
 #   keep=1                do not delete the unused stack to free RAM
 #   k3s.full=1            keep traefik, servicelb and metrics-server enabled
+#   k3s.cfgtimeout=SEC    budget for the server to write its kubeconfig (default 120)
 #   k3s.timeout=SECONDS   budget for the node to become Ready (default 1800)
 #   k3s.podtimeout=SEC    budget for the test pod (default 900)
 #   docker.timeout=SEC    budget for the Docker test (default 600)
@@ -48,6 +49,7 @@ TEST=all
 DEBUG=0
 KEEP=0
 K3S_FULL=0
+K3S_CFGTIMEOUT=120
 K3S_TIMEOUT=1800
 K3S_PODTIMEOUT=900
 DOCKER_TIMEOUT=600
@@ -264,6 +266,7 @@ parse_cmdline() {
 		debug=*) DEBUG=${w#debug=} ;;
 		keep=*) KEEP=${w#keep=} ;;
 		k3s.full=*) K3S_FULL=${w#k3s.full=} ;;
+		k3s.cfgtimeout=*) K3S_CFGTIMEOUT=${w#k3s.cfgtimeout=} ;;
 		k3s.timeout=*) K3S_TIMEOUT=${w#k3s.timeout=} ;;
 		k3s.podtimeout=*) K3S_PODTIMEOUT=${w#k3s.podtimeout=} ;;
 		docker.timeout=*) DOCKER_TIMEOUT=${w#docker.timeout=} ;;
@@ -995,7 +998,7 @@ test_k3s() {
 rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 	}
 
-	if ! wait_until 120 "k3s kubeconfig" test -r /etc/rancher/k3s/k3s.yaml; then
+	if ! wait_until "$K3S_CFGTIMEOUT" "k3s kubeconfig" test -r /etc/rancher/k3s/k3s.yaml; then
 		progress_extra
 		k3s_fail "k3s server did not write a kubeconfig"
 		return 1

@@ -840,6 +840,7 @@ so it is safe to keep `console=`, `earlycon=` and friends.
 | `debug=1` | off | drop to a shell on the console instead of powering off, including after `PAYLOAD_FAIL` |
 | `keep=1` | off | do not delete the unused stack or the imported image tars (implied by `debug=1`) |
 | `k3s.full=1` | off | do not disable traefik, servicelb and metrics-server |
+| `k3s.cfgtimeout=SEC` | `120` | budget for the server to write its kubeconfig; raise it under Xen, where 120 s ran out before the API server answered |
 | `k3s.timeout=SEC` | `1800` | budget for the node to reach Ready |
 | `k3s.podtimeout=SEC` | `900` | budget for the test pod to finish |
 | `docker.timeout=SEC` | `600` | budget for each `docker run` in the test |
