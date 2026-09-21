@@ -63,6 +63,12 @@ da99a1d7a7257b4e685b9ed64070507a2f9cc90c5e414db288fe4972006ade71  initrd-full.cp
 58c44edc05a3c34c28c29b465b209be1bdbb37b793ab3cdcb455bdd225735a70  initrd-full.cpio.zst
 ```
 
+All four variants were rebuilt again on 2026-09-21 so that every archive
+carries the current `init` (`k3s.cfgtimeout=`, fail-fast on a dead K3s server,
+`k3s.restarts=`); the `/init` inside each one was checked against `init` here.
+The hashes above belong to the 2026-09-20 build. The current ones are in the
+`.sha256` sidecars.
+
 Two changes have landed on top of the build described by the RAM tables further
 down, and neither moves anything that matters:
 
