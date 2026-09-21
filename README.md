@@ -17,7 +17,8 @@
 >   started through dom0 and `xl create`, under QEMU TCG, runs Docker and K3s
 >   (`SUMMARY: docker=ok k3s=ok`, six of six runs on a fast Linux host), with a
 >   Xen guest kernel from `baptleduc/linux-xen-riscv`, not the kernel described
->   below. No PV network or disk yet, no hardware. See `REPLICATION.md`,
+>   below. PV network and PV disk work too, but only with two experimental
+>   grant-table changes. Nothing on hardware. See `REPLICATION.md`,
 >   "Notes for the dom0 and domU path".
 >
 > Kept rather than deleted because the prose around those numbers is still
