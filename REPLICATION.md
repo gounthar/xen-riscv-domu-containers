@@ -539,8 +539,8 @@ after 45-60 s, no restart. On
 an i9-12900H laptop under WSL2 the same image ran about 3x slower. There, K3s once exited
 on its own startup deadline (`failed to create crd ... context canceled`) and once reached
 node Ready after 339 s, after which the server exited during the pod wait, once with
-status 0 and no error and once on the same CRD startup deadline, and restarts had not
-rescued it at the time of writing. Under TCG this stack sits close to K3s's internal deadlines, so run
+status 0 and no error and once on the same CRD startup deadline; the restarts did not
+rescue it and the test pod never finished. Under TCG this stack sits close to K3s's internal deadlines, so run
 it on a fast, otherwise idle, native Linux host.
 
 ### Read the log by occurrence
