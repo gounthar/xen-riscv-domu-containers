@@ -533,9 +533,12 @@ handle `XENMAPSPACE_grant_table`, so the guest cannot map any grant-table frames
 has no grant references to share its rings with. This is not a configuration problem.
 ARM implements that case, and porting it into Xen as an experiment (reverted) was enough
 for Xen to grow the guest's grant table (`Expanding d1 grant table from 1 to 2 frames`).
-The guest then oopsed in `gnttab_update_entry_v1`: in `baptleduc/linux-xen-riscv`,
-`arch_gnttab_map_shared()` (`arch/riscv/xen/grant-table.c`) also returns `-ENOSYS`. So it
-needs work on both sides, in Xen and in the guest kernel. Until it is filled, the payload falls
+The guest then oopsed in `gnttab_update_entry_v1`, writing through a NULL grant-table
+base. The likely cause, read from source and not yet tested: in `baptleduc/linux-xen-riscv`,
+`arch_gnttab_init()` (`arch/riscv/xen/grant-table.c`) returns `-ENOSYS` where ARM's returns
+0, so `gnttab_init()` stops before it maps the shared frames. So it needs a change on both
+sides, in Xen and in the guest kernel. (An earlier version of this section blamed
+`arch_gnttab_map_shared()`; that is `-ENOSYS` on ARM too and not on this path.) Until it is filled, the payload falls
 back to `dummy0` for networking and skips the disk test. The console is unaffected: its
 ring page comes from a fixed parameter, not from a grant.
 
@@ -960,8 +963,8 @@ all is still untested.
 - **netfront and blkfront do not work in the guest.** dom0 attaches both (vif bridged,
   `block add` completes once `/dev/stdin` exists), but the guest cannot map grant-table
   frames (`add_to_physmap failed, err=-38`), so neither frontend can share its ring.
-  Filling in Xen's side alone is not enough; the guest kernel's side is a stub too (see
-  below). See
+  Filling in Xen's side alone is not enough; the guest kernel needs a change too (see
+  above). See
   "Neither PV network nor PV disk works in the guest yet". The network and disk results here are
   virtio: a `virtio_net` interface and a `/dev/vda` virtio-blk device. What is proven
   is that the payload handles a real interface and a real block device, not that the
