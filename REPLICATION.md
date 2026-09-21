@@ -393,10 +393,11 @@ These come from getting Xen, dom0 and this payload assembled with the
 would have been invisible.
 
 **Status 2026-09-21:** a domU now boots through dom0 to userspace under QEMU TCG and
-passes the Docker test (`SUMMARY: docker=ok k3s=failed ... disk=skipped`). Getting there
+passes the Docker and K3s tests (`SUMMARY: docker=ok k3s=ok disk=skipped`, on a native
+Linux host; see "Host speed decides K3s" below). Getting there
 needed the three subsections that follow this paragraph, two of which change code in
-Xen's toolstack or the guest kernel. K3s under Xen, netfront and blkfront are **not**
-shown; see "What has not been tested".
+Xen's toolstack or the guest kernel. netfront and blkfront are **not** shown; see "What
+has not been tested".
 
 ### Without `sstc` the guest can livelock under TCG, and the workaround is only safe for one vCPU
 
@@ -490,10 +491,20 @@ while the server was still starting (`server is not ready`, plenty of memory, no
 The domU config used from then on:
 
 ```
-extra = "console=hvc0 earlycon=sbi test=all net.addr=192.168.128.2/24 net.gw=192.168.128.1 k3s.cfgtimeout=1800 k3s.timeout=5400 k3s.podtimeout=2400 disk.timeout=900 progress=60"
+extra = "console=hvc0 earlycon=sbi test=all net.addr=192.168.128.2/24 net.gw=192.168.128.1 k3s.cfgtimeout=1800 k3s.restarts=3 k3s.timeout=5400 k3s.podtimeout=2400 disk.timeout=900 progress=60"
 ```
 
-Whether K3s then reaches `K3S_OK` under Xen is not yet known.
+Add `k3s.restarts=3` too: the payload then restarts a K3s server that exits (same data
+dir), and in any case stops waiting on a dead one.
+
+### Host speed decides K3s
+
+With that config, K3s passed under Xen on a native Linux host with an AMD Ryzen 5 230:
+kubeconfig after 18 s, node Ready after 77 s, the test pod done after 45 s, no restart. On
+an i9-12900H laptop under WSL2 the same image ran about 3x slower. There, K3s once exited
+on its own startup deadline (`failed to create crd ... context canceled`) and once reached
+node Ready after 339 s. Under TCG this stack sits close to K3s's internal deadlines, so run
+it on a fast, otherwise idle, native Linux host.
 
 ### Read the log by occurrence
 
@@ -893,10 +904,9 @@ all is still untested.
 
 ## What has not been tested
 
-- **K3s under Xen.** The payload has run under `xl create` since 2026-09-21 and the
-  Docker test passes there. K3s failed on the kubeconfig wait at its old 120 s default;
-  whether it passes with `k3s.cfgtimeout=1800` is not yet known. All other results in
-  this file are from plain `-M virt` with no hypervisor.
+- **K3s under Xen has passed once.** One run on one host (see "Host speed decides K3s");
+  on a slower host it is marginal. All results outside the dom0/domU section are from
+  plain `-M virt` with no hypervisor.
 - **The domU that boots needs an experimental guest-kernel change** for the event-channel
   interrupt (above). No domU has booted on an unmodified guest kernel past that point.
 - **Nothing on riscv64 hardware.** All boots were TCG on x86_64.
