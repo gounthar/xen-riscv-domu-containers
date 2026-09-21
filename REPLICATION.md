@@ -402,7 +402,8 @@ shown; see "What has not been tested".
 `tools/libs/light/libxl_riscv.c:25` hardcodes the domU's `riscv,isa` as
 `"rv64imafdc_ssaia"`. Xen already enables the extension for every guest vcpu
 (`xen/arch/riscv/domain.c:523`, `ENVCFG_STCE`) and dom0 gets it from the host device
-tree, but the domU is never told. Linux then programs its timer through SBI
+tree, but the domU is not told (the string read `"rv64imafdc_sstc"` until a later
+commit replaced `sstc` with `ssaia` instead of adding it). Linux then programs its timer through SBI
 `set_timer`, two world switches per tick. Under TCG a tick costs 7-15 ms against a
 4 ms period and the guest livelocks one instruction after `local_irq_enable()`: last
 line `sched_clock: 64 bits at 10MHz`, QEMU at 100% CPU, nothing more, ever.
@@ -437,8 +438,8 @@ experiment, not a fix: one hypercall at the end of `xen_riscv_callback()` in
 	HYPERVISOR_xen_version(XENVER_version, NULL);	/* experiment: force an exit */
 ```
 
-(plus `#include <xen/interface/version.h>`). The real fix belongs in Xen and is the Xen
-port maintainer's call. Do not ship the above.
+(plus `#include <xen/interface/version.h>`). The real fix belongs in Xen, with the
+authors of the event-channel delivery code. Do not ship the above.
 
 ### dom0 needs devpts and `xenconsoled` before `xl create -c`
 
