@@ -63,6 +63,12 @@ da99a1d7a7257b4e685b9ed64070507a2f9cc90c5e414db288fe4972006ade71  initrd-full.cp
 58c44edc05a3c34c28c29b465b209be1bdbb37b793ab3cdcb455bdd225735a70  initrd-full.cpio.zst
 ```
 
+All four variants were rebuilt again on 2026-09-21 so that every archive
+carries the current `init` (`k3s.cfgtimeout=`, fail-fast on a dead K3s server,
+`k3s.restarts=`); the `/init` inside each one was checked against `init` here.
+The hashes above belong to the 2026-09-20 build. The current ones are in the
+`.sha256` sidecars.
+
 Two changes have landed on top of the build described by the RAM tables further
 down, and neither moves anything that matters:
 
@@ -795,7 +801,7 @@ the domU. The layout invites that substitution, so it is written down here.
 
 | | `kernel/Image`, `kernel/config-7.2.6` | the domU kernel |
 |---|---|---|
-| Where | next to this payload | `/home/poddingue/xen-riscv/out/container/` (`Image`, `Image.gz`, `.config`, `System.map`) |
+| Where | next to this payload | `~/xen-riscv/out/container/` on the build machine (`Image`, `Image.gz`, `.config`, `System.map`) |
 | Built from | riscv `defconfig` + `kernel/container.config` | `baptleduc/linux-xen-riscv`, branch `6.18-xen-guest-support`, which carries the `arch/riscv/xen` commits |
 | Xen support | **none.** The only two lines matching `xen` are `CONFIG_NETXEN_NIC` and `CONFIG_MMC_SDHCI_XENON`, unrelated NIC and MMC drivers | `CONFIG_XEN=y`, `CONFIG_XEN_NETDEV_FRONTEND=y`, `CONFIG_XEN_BLKDEV_FRONTEND=y`, `CONFIG_XEN_XENBUS_FRONTEND=y`, `CONFIG_XEN_GNTDEV=y`, `CONFIG_XEN_GRANT_DMA_ALLOC=y`, and 145 `xennet_`/`blkfront_`/`xenbus_` symbols in `System.map` |
 | What it is for | plain-QEMU validation: every boot in this document | the Xen guest, where netfront and blkfront actually appear |
@@ -840,6 +846,8 @@ so it is safe to keep `console=`, `earlycon=` and friends.
 | `debug=1` | off | drop to a shell on the console instead of powering off, including after `PAYLOAD_FAIL` |
 | `keep=1` | off | do not delete the unused stack or the imported image tars (implied by `debug=1`) |
 | `k3s.full=1` | off | do not disable traefik, servicelb and metrics-server |
+| `k3s.cfgtimeout=SEC` | `120` | budget for the server to write its kubeconfig; raise it under Xen, where 120 s ran out before the API server answered |
+| `k3s.restarts=N` | `0` | restart the K3s server up to N times if it exits (same data dir, remaining budget); the result then says `ok (after N server restart(s))` |
 | `k3s.timeout=SEC` | `1800` | budget for the node to reach Ready |
 | `k3s.podtimeout=SEC` | `900` | budget for the test pod to finish |
 | `docker.timeout=SEC` | `600` | budget for each `docker run` in the test |

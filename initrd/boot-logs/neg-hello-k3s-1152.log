@@ -1,0 +1,340 @@
+
+OpenSBI v1.6
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name               : riscv-virtio,qemu
+Platform Features           : medeleg
+Platform HART Count         : 4
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 10000000Hz
+Platform Console Device     : uart8250
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : syscon-reboot
+Platform Shutdown Device    : syscon-poweroff
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 361 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 105 KB
+Firmware Heap Offset        : 0x4e000
+Firmware Heap Size          : 49 KB (total), 3 KB (reserved), 13 KB (used), 32 KB (free)
+Firmware Scratch Size       : 4096 B (total), 440 B (used), 3656 B (free)
+Runtime SBI Version         : 2.0
+Standard SBI Extensions     : ipi,pmu,srst,hsm,rfnc,time,base,legacy,dbcn
+Experimental SBI Extensions : sse,fwft,dbtr
+
+Domain0 Name                : root
+Domain0 Boot HART           : 0
+Domain0 HARTs               : 0*,1*,2*,3*
+Domain0 Region00            : 0x0000000000100000-0x0000000000100fff M: (I,R,W) S/U: (R,W)
+Domain0 Region01            : 0x0000000010000000-0x0000000010000fff M: (I,R,W) S/U: (R,W)
+Domain0 Region02            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
+Domain0 Region03            : 0x0000000080040000-0x000000008005ffff M: (R,W) S/U: ()
+Domain0 Region04            : 0x0000000080000000-0x000000008003ffff M: (R,X) S/U: ()
+Domain0 Region05            : 0x000000000c400000-0x000000000c5fffff M: (I,R,W) S/U: (R,W)
+Domain0 Region06            : 0x000000000c000000-0x000000000c3fffff M: (I,R,W) S/U: (R,W)
+Domain0 Region07            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x0000000080200000
+Domain0 Next Arg1           : 0x00000000c7e00000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+
+Boot HART ID                : 0
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv64imafdch
+Boot HART ISA Extensions    : sstc,zicntr,zihpm,zicboz,zicbom,sdtrig,svadu
+Boot HART PMP Count         : 16
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 54
+Boot HART MHPM Info         : 16 (0x0007fff8)
+Boot HART Debug Triggers    : 2 triggers
+Boot HART MIDELEG           : 0x0000000000001666
+Boot HART MEDELEG           : 0x0000000000f4b509
+[    0.000000] Booting Linux on hartid 0
+[    0.000000] Linux version 7.2.6 (@ef5de219b429) (riscv64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0, GNU ld (GNU Binutils for Debian) 2.44) #1 SMP PREEMPT Sun Sep 20 10:06:57 UTC 2026
+[    0.000000] random: crng init done
+[    0.000000] Machine model: riscv-virtio,qemu
+[    0.000000] SBI specification v2.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10006
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] efi: UEFI not found.
+[    0.000000] OF: reserved mem: 0x0000000080000000..0x000000008003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[    0.000000] OF: reserved mem: 0x0000000080040000..0x000000008005ffff (128 KiB) nomap non-reusable mmode_resv0@80040000
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: base ISA extensions acdfhim
+[    0.000000] riscv: ELF capabilities acdfim
+[    0.000000] Queued spinlock using Ziccrse: enabled
+[    0.000000] Zone ranges:
+[    0.000000]   DMA32    [mem 0x0000000080000000-0x00000000c7ffffff]
+[    0.000000]   Normal   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080000000-0x000000008005ffff]
+[    0.000000]   node   0: [mem 0x0000000080060000-0x00000000c7ffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080000000-0x00000000c7ffffff]
+[    0.000000] percpu: Embedded 31 pages/cpu s88088 r8192 d30696 u126976
+[    0.000000] Kernel command line: console=ttyS0 test=k3s
+[    0.000000] Unknown kernel command line parameters "test=k3s", will be passed to user space.
+[    0.000000] printk: log buffer data + meta data: 131072 + 458752 = 589824 bytes
+[    0.000000] Dentry cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 65536 (order: 7, 524288 bytes, linear)
+[    0.000000] software IO TLB: SWIOTLB bounce buffer size adjusted to 1MB
+[    0.000000] software IO TLB: area num 4.
+[    0.000000] software IO TLB: SWIOTLB bounce buffer size roundup to 2MB
+[    0.000000] software IO TLB: mapped [mem 0x00000000c5980000-0x00000000c5b80000] (2MB)
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 294912
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=4, Nodes=1
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU event tracing is enabled.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=64 to nr_cpu_ids=4.
+[    0.000000] 	Trampoline variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=4
+[    0.000000] RCU Tasks: Setting shift to 2 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=4.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 64 local interrupts mapped
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.000129] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[    0.000374] riscv-timer: Timer interrupt in S-mode is available via sstc extension
+[    0.028802] Console: colour dummy device 80x25
+[    0.037384] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=40000)
+[    0.037828] pid_max: default: 32768 minimum: 301
+[    0.052272] Mount-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.052689] Mountpoint-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.082645] VFS: Finished mounting rootfs on nullfs
+[    0.181622] riscv: ELF compat mode supported
+[    0.182760] ASID allocator using 16 bits (65536 entries)
+[    0.190200] rcu: Hierarchical SRCU implementation.
+[    0.190389] rcu: 	Max phase no-delay instances is 1000.
+[    0.196212] Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level
+[    0.206082] EFI services will not be available.
+[    0.209901] smp: Bringing up secondary CPUs ...
+[    0.247926] smp: Brought up 1 node, 4 CPUs
+[    0.266708] Memory: 962676K/1179648K available (13307K kernel code, 6033K rwdata, 6144K rodata, 2479K init, 454K bss, 212784K reserved, 0K cma-reserved)
+[    0.301092] devtmpfs: initialized
+[    0.341695] posixtimers hash table entries: 2048 (order: 3, 32768 bytes, linear)
+[    0.342591] futex hash table entries: 1024 (65536 bytes on 1 NUMA nodes, total 64 KiB, linear).
+[    0.378289] DMI: not present or invalid.
+[    0.386324] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.397609] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.398506] audit: initializing netlink subsys (disabled)
+[    0.405585] audit: type=2000 audit(0.344:1): state=initialized audit_enabled=0 res=1
+[    0.411853] thermal_sys: Registered thermal governor 'step_wise'
+[    0.414445] cpuidle: using governor menu
+[    0.497646] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    0.497750] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[    0.509312] ACPI: Interpreter disabled.
+[    0.510512] iommu: Default domain type: Translated
+[    0.510581] iommu: DMA domain TLB invalidation policy: strict mode
+[    0.522956] SCSI subsystem initialized
+[    0.531406] usbcore: registered new interface driver usbfs
+[    0.532647] usbcore: registered new interface driver hub
+[    0.533112] usbcore: registered new device driver usb
+[    0.541782] Advanced Linux Sound Architecture Driver Initialized.
+[    0.590871] vgaarb: loaded
+[    0.601124] clocksource: Switched to clocksource riscv_clocksource
+[    0.623210] pnp: PnP ACPI: disabled
+[    0.774350] NET: Registered PF_INET protocol family
+[    0.778998] IP idents hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    0.798911] tcp_listen_portaddr_hash hash table entries: 512 (order: 1, 8192 bytes, linear)
+[    0.799055] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    0.799215] TCP established hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[    0.799552] TCP bind hash table entries: 8192 (order: 6, 262144 bytes, linear)
+[    0.800122] TCP: Hash tables configured (established 8192 bind 8192)
+[    0.801752] UDP hash table entries: 512 (order: 3, 32768 bytes, linear)
+[    0.804515] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    0.813907] RPC: Registered named UNIX socket transport module.
+[    0.814048] RPC: Registered udp transport module.
+[    0.814076] RPC: Registered tcp transport module.
+[    0.814099] RPC: Registered tcp-with-tls transport module.
+[    0.814123] RPC: Registered tcp NFSv4.1 backchannel transport module.
+[    0.834478] cpu0: scalar unaligned word access speed is 10.54x byte access speed (fast)
+[    0.834552] cpu1: scalar unaligned word access speed is 10.09x byte access speed (fast)
+[    0.834535] cpu2: scalar unaligned word access speed is 7.36x byte access speed (fast)
+[    0.834564] cpu3: scalar unaligned word access speed is 5.26x byte access speed (fast)
+[    0.839148] PCI: CLS 0 bytes, default 64
+[    0.858117] workingset: timestamp_bits=46 (anon: 41) max_order=18 bucket_order=0 (anon: 0)
+[    0.861065] Unpacking initramfs...
+[    0.875250] NFS: Registering the id_resolver key type
+[    0.876743] Key type id_resolver registered
+[    0.876880] Key type id_legacy registered
+[    0.878115] nfs4filelayout_init: NFSv4 File Layout Driver Registering...
+[    0.878453] nfs4flexfilelayout_init: NFSv4 Flexfile Layout Driver Registering...
+[    0.882262] 9p: Installing v9fs 9p2000 file system support
+[    0.892294] NET: Registered PF_ALG protocol family
+[    0.893624] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 244)
+[    0.897111] io scheduler mq-deadline registered
+[    0.897412] io scheduler kyber registered
+[    0.898358] io scheduler bfq registered
+[    0.924643] riscv-plic: plic@c000000: mapped 96 interrupts with 4 handlers for 8 contexts.
+[    0.938819] pci-host-generic 30000000.pci: host bridge /soc/pci@30000000 ranges:
+[    0.942192] pci-host-generic 30000000.pci:       IO 0x0003000000..0x000300ffff -> 0x0000000000
+[    0.944787] pci-host-generic 30000000.pci:      MEM 0x0040000000..0x007fffffff -> 0x0040000000
+[    0.945040] pci-host-generic 30000000.pci:      MEM 0x0400000000..0x07ffffffff -> 0x0400000000
+[    0.947333] pci-host-generic 30000000.pci: Memory resource size exceeds max for 32 bits
+[    0.949896] pci-host-generic 30000000.pci: ECAM at [mem 0x30000000-0x3fffffff] for [bus 00-ff]
+[    0.957372] pci-host-generic 30000000.pci: PCI host bridge to bus 0000:00
+[    0.958203] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    0.958548] pci_bus 0000:00: root bus resource [io  0x0000-0xffff]
+[    0.958813] pci_bus 0000:00: root bus resource [mem 0x40000000-0x7fffffff]
+[    0.958857] pci_bus 0000:00: root bus resource [mem 0x400000000-0x7ffffffff]
+[    0.963358] pci 0000:00:00.0: [1b36:0008] type 00 class 0x060000 conventional PCI endpoint
+[    0.986786] pci_bus 0000:00: resource 4 [io  0x0000-0xffff]
+[    0.987152] pci_bus 0000:00: resource 5 [mem 0x40000000-0x7fffffff]
+[    0.987212] pci_bus 0000:00: resource 6 [mem 0x400000000-0x7ffffffff]
+[    1.686050] Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled
+[    1.737077] printk: legacy console [ttyS0] disabled
+[    1.750067] 10000000.serial: ttyS0 at MMIO 0x10000000 (irq = 12, base_baud = 230400) is a 16550A
+[    1.758462] printk: legacy console [ttyS0] enabled
+[    2.000751] loop: module loaded
+[    2.034907] e1000e: Intel(R) PRO/1000 Network Driver
+[    2.035354] e1000e: Copyright(c) 1999 - 2015 Intel Corporation.
+[    2.049837] usbcore: registered new interface driver uas
+[    2.052955] usbcore: registered new interface driver usb-storage
+[    2.061343] mousedev: PS/2 mouse device common for all mice
+[    2.081011] goldfish_rtc 101000.rtc: registered as rtc0
+[    2.085664] goldfish_rtc 101000.rtc: setting system clock to 2026-09-20T16:09:01 UTC (1789920541)
+[    2.113975] usbcore: registered new interface driver usbhid
+[    2.115473] usbhid: USB HID core driver
+[    2.119603] riscv-pmu-sbi: SBI PMU extension is available
+[    2.123413] riscv-pmu-sbi: 16 firmware and 18 hardware counters
+[    2.129245] riscv-pmu-sbi: Perf sampling/filtering is not supported as sscof extension is not available
+[    2.219389] IPVS: Registered protocols (TCP, UDP)
+[    2.220272] IPVS: Connection hash table configured (size=4096, memory=32Kbytes)
+[    2.224873] IPVS: ipvs loaded.
+[    2.225463] IPVS: [rr] scheduler registered.
+[    2.229521] Initializing XFRM netlink socket
+[    2.230877] NET: Registered PF_INET6 protocol family
+[    2.251468] Segment Routing with IPv6
+[    2.253598] In-situ OAM (IOAM) with IPv6
+[    2.259665] NET: Registered PF_PACKET protocol family
+[    2.263740] Bridge firewalling registered
+[    2.271867] 9pnet: Installing 9P2000 support
+[    2.275653] Key type dns_resolver registered
+[    4.406613] clk: Disabling unused clocks
+[    4.407650] PM: genpd: Disabling unused power domains
+[    4.409747] ALSA device list:
+[    4.410408]   No soundcards found.
+[   13.085041] Freeing initrd memory: 142656K
+[   13.311139] Freeing unused kernel image (initmem) memory: 2476K
+[   13.315033] Run /init as init process
+PAYLOAD_START
+[    14.38] rootfs (initramfs): rootfs 472M total, 326M used, 145M free; MemTotal 1085M
+[    16.98] payload: image intact (variant k3s, 1541 files, 340482291 bytes, 21 named files, checked in 3s)
+[    17.04] stage 1: initramfs rootfs, moving the root to tmpfs (size=90%)
+[    17.06] free -m (stage 1 start):
+               total        used        free      shared  buff/cache   available
+Mem:            1085         369         721         326         328         716
+Swap:              0           0           0
+[    26.68] stage 1: switching root
+[    28.92] cgroups: available:cpuset cpu io memory hugetlb pids 
+[    29.03] cgroups: delegated: cpuset cpu io memory hugetlb pids
+[    29.46] stage 2: root is tmpfs, test=k3s
+[    29.78] rootfs (real root): tmpfs 977M total, 326M used, 651M free; MemTotal 1085M
+[    29.82] payload: image variant k3s (docker=0 k3s=1)
+[    30.99] net: lo 127.0.0.1/8 dummy0 10.0.2.15/24 
+[    31.16] net: default route: default via 10.0.2.2 dev dummy0 onlink 
+[    31.21] free -m (stage 2 start):
+               total        used        free      shared  buff/cache   available
+Mem:            1085         372         717         326         329         713
+Swap:              0           0           0
+[    31.39] prune: removing the Docker stack to free RAM
+[    31.59] === K3s test (node timeout 1800s, pod timeout 900s) ===
+[    31.66] free -m (before k3s):
+               total        used        free      shared  buff/cache   available
+Mem:            1085         372         717         326         329         713
+Swap:              0           0           0
+[    52.44] k3s: k3s version v1.37.0+k3s1 (bb7cf065)
+[    52.58] k3s: airgap images present: busybox-1.37.0.tar hello-world-latest.tar local-path-provisioner-v0.0.37.tar mirrored-coredns-coredns-1.14.7.tar pause-3.10.2.tar 
+[    82.58] k3s kubeconfig: still waiting (30s/120s)
+[    82.64] k3s: | time="2026-09-20T16:10:21Z" level=info msg="certificate CN=system:k3s-controller signed by CN=k3s-client-ca@1789920600: notBefore=2026-09-20 15:10:21 +0000 UTC notAfter=2027-09-20 
+[    82.72] k3s: | mem 602M available, rootfs 327M used of 978M
+[    87.16] k3s kubeconfig: ready after 34s
+[   117.59] k3s node Ready: still waiting (31s/1800s)
+[   117.67] k3s: | W0920 16:10:55.766698     267 genericapiserver.go:798] Skipping API apiregistration.k8s.io/v1beta1 because it has no resources.
+[   117.79] k3s: | mem 497M available, rootfs 365M used of 978M
+[   168.13] k3s node Ready: still waiting (81s/1800s)
+[   168.34] k3s: | E0920 16:11:47.742344     267 kubelet.go:3596] "Unable to register mirror pod because node is not registered yet" err="node \"domu\" not found" node="domu"
+[   168.64] k3s: | mem 406M available, rootfs 369M used of 978M
+[   189.49] k3s node Ready: ready after 102s
+[   189.58] prune: removing the imported airgap tars (38064K)
+[   189.71] free -m (k3s node Ready):
+               total        used        free      shared  buff/cache   available
+Mem:            1085         688         401         331         335         397
+Swap:              0           0           0
+[   196.17] k3s: domu   Ready   control-plane   27s   v1.37.0+k3s1   10.0.2.15   <none>   Debian GNU/Linux 13 (trixie)   7.2.6 (riscv64)   containerd://2.3.4-k3s1
+[   259.10] k3s pod apply: ready after 63s
+[   291.59] k3s test pod: still waiting (32s/900s)
+[   332.36] k3s: | pod: payload-test   0/1   Completed   0     74s
+[   356.57] k3s test pod: ready after 97s
+[   365.59] k3s: logs of pod payload-test:
+NEGATIVE_CONTROL
+K3S_FAIL: pod logs did not carry 'Hello from Docker!' (got: NEGATIVE_CONTROL)
+[   365.66] k3s: last 40 lines of /var/log/k3s.log:
+E0920 16:13:45.429029     267 kubelet.go:2860] "Housekeeping took longer than expected" err="housekeeping took too long" expected="1s" actual="1.567s"
+E0920 16:13:49.324553     267 kubelet.go:2860] "Housekeeping took longer than expected" err="housekeeping took too long" expected="1s" actual="3.396s"
+I0920 16:13:51.852832     267 server.go:177] "Pod update broadcasted" podUID="ed858282-91f2-44ba-861f-25e6d474bf40" type="MODIFIED"
+E0920 16:13:52.175347     267 pod_workers.go:1338] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"helm\" with ImagePullBackOff: \"Back-off pulling image \\\"rancher/klipper-helm:v0.13.3-build20260727\\\": ErrImagePull: failed to pull and unpack image \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to resolve reference \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to do request: Head \\\"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\\\": dial tcp: lookup registry-1.docker.io: Try again\"" pod="kube-system/helm-install-gateway-api-crd-qlc89" podUID="ed858282-91f2-44ba-861f-25e6d474bf40"
+I0920 16:13:54.996925     267 server.go:177] "Pod update broadcasted" podUID="461598cc-f67a-4011-8ef2-b64daba29329" type="MODIFIED"
+E0920 16:13:56.926511     267 kubelet.go:2860] "Housekeeping took longer than expected" err="housekeeping took too long" expected="1s" actual="1.075s"
+I0920 16:13:58.166702     267 pod_startup_latency_tracker.go:144] "Observed pod startup duration" pod="kube-system/local-path-provisioner-6858d854cf-g9fsq" podStartSLOduration=76.1602952 podStartE2EDuration="1m16.1602952s" totalImagesPullingTime="0s" totalInitContainerRuntime="0s" isStatefulPod=false podCreationTimestamp="2026-09-20 16:12:42 +0000 UTC" imagePullSessionsCount=0 imagePullSessionsStartsCount=0 observedRunningTime="2026-09-20 16:13:57.7873001 +0000 UTC m=+245.280070001" watchObservedRunningTime="2026-09-20 16:13:58.1602952 +0000 UTC m=+245.653065701"
+E0920 16:13:59.083598     267 kubelet.go:2860] "Housekeeping took longer than expected" err="housekeeping took too long" expected="1s" actual="1.203s"
+I0920 16:14:00.929749     267 server.go:177] "Pod update broadcasted" podUID="02285d21-153e-44a8-a4f5-0c285ddae334" type="MODIFIED"
+E0920 16:14:00.997635     267 kubelet.go:2860] "Housekeeping took longer than expected" err="housekeeping took too long" expected="1s" actual="1.112s"
+I0920 16:14:03.694120     267 server.go:177] "Pod update broadcasted" podUID="02285d21-153e-44a8-a4f5-0c285ddae334" type="MODIFIED"
+I0920 16:14:05.054966     267 pod_startup_latency_tracker.go:144] "Observed pod startup duration" pod="default/payload-test" podStartSLOduration=48.0462519 podStartE2EDuration="48.0462519s" totalImagesPullingTime="0s" totalInitContainerRuntime="0s" isStatefulPod=false podCreationTimestamp="2026-09-20 16:13:17 +0000 UTC" imagePullSessionsCount=0 imagePullSessionsStartsCount=0 observedRunningTime="2026-09-20 16:14:04.9909076 +0000 UTC m=+252.483677901" watchObservedRunningTime="2026-09-20 16:14:05.0462519 +0000 UTC m=+252.539020401"
+I0920 16:14:05.962298     267 server.go:177] "Pod update broadcasted" podUID="ed858282-91f2-44ba-861f-25e6d474bf40" type="MODIFIED"
+E0920 16:14:07.084637     267 kubelet.go:2860] "Housekeeping took longer than expected" err="housekeeping took too long" expected="1s" actual="1.132s"
+I0920 16:14:08.648602     267 server.go:177] "Pod update broadcasted" podUID="a0c0180d-f4ad-4ff3-815f-c2b409a8922d" type="MODIFIED"
+E0920 16:14:10.211593     267 kubelet.go:2860] "Housekeeping took longer than expected" err="housekeeping took too long" expected="1s" actual="2.352s"
+E0920 16:14:13.463759     267 kubelet.go:2860] "Housekeeping took longer than expected" err="housekeeping took too long" expected="1s" actual="3.248s"
+E0920 16:14:13.748077     267 remote_image.go:334] "PullImage from image service failed" err="rpc error: code = Unknown desc = failed to pull and unpack image \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to resolve reference \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to do request: Head \"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\": dial tcp: lookup registry-1.docker.io: Try again" image="rancher/klipper-helm:v0.13.3-build20260727"
+E0920 16:14:13.755796     267 kuberuntime_image.go:43] "Failed to pull image" err="failed to pull and unpack image \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to resolve reference \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to do request: Head \"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\": dial tcp: lookup registry-1.docker.io: Try again" image="rancher/klipper-helm:v0.13.3-build20260727"
+E0920 16:14:14.414539     267 kuberuntime_manager.go:1854] "Unhandled Error" err="container helm start failed in pod helm-install-gateway-api-crd-qlc89_kube-system(ed858282-91f2-44ba-861f-25e6d474bf40): ErrImagePull: failed to pull and unpack image \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to resolve reference \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to do request: Head \"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\": dial tcp: lookup registry-1.docker.io: Try again" logger="UnhandledError"
+E0920 16:14:14.924229     267 pod_workers.go:1338] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"helm\" with ErrImagePull: \"failed to pull and unpack image \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to resolve reference \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to do request: Head \\\"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\\\": dial tcp: lookup registry-1.docker.io: Try again\"" pod="kube-system/helm-install-gateway-api-crd-qlc89" podUID="ed858282-91f2-44ba-861f-25e6d474bf40"
+E0920 16:14:18.503841     267 kubelet.go:2860] "Housekeeping took longer than expected" err="housekeeping took too long" expected="1s" actual="4.607s"
+E0920 16:14:21.187704     267 kubelet.go:2860] "Housekeeping took longer than expected" err="housekeeping took too long" expected="1s" actual="2.521s"
+I0920 16:14:21.259295     267 pod_container_deletor.go:83] "Container not found in pod's containers" containerID="fa94b02fe0e86dcb206cafc88d0dffaf09cc65773abb9a4f5e939fc227831d62"
+I0920 16:14:22.688014     267 pod_startup_latency_tracker.go:144] "Observed pod startup duration" pod="kube-system/coredns-577d995dff-qcxbr" podStartSLOduration=100.6876198 podStartE2EDuration="1m40.6876198s" totalImagesPullingTime="0s" totalInitContainerRuntime="0s" isStatefulPod=false podCreationTimestamp="2026-09-20 16:12:42 +0000 UTC" imagePullSessionsCount=0 imagePullSessionsStartsCount=0 observedRunningTime="2026-09-20 16:14:22.288563 +0000 UTC m=+269.781333101" watchObservedRunningTime="2026-09-20 16:14:22.6876198 +0000 UTC m=+270.180390801"
+E0920 16:14:23.151687     267 kubelet.go:2860] "Housekeeping took longer than expected" err="housekeeping took too long" expected="1s" actual="1.012s"
+I0920 16:14:23.210255     267 server.go:177] "Pod update broadcasted" podUID="a0c0180d-f4ad-4ff3-815f-c2b409a8922d" type="MODIFIED"
+I0920 16:14:24.616942     267 server.go:177] "Pod update broadcasted" podUID="02285d21-153e-44a8-a4f5-0c285ddae334" type="MODIFIED"
+I0920 16:14:24.738659     267 reconciler_common.go:163] "operationExecutor.UnmountVolume started for volume \"kubernetes.io/projected/02285d21-153e-44a8-a4f5-0c285ddae334-kube-api-access-f4z9d\" (UniqueName: \"kubernetes.io/projected/02285d21-153e-44a8-a4f5-0c285ddae334-kube-api-access-f4z9d\") pod \"02285d21-153e-44a8-a4f5-0c285ddae334\" (UID: \"02285d21-153e-44a8-a4f5-0c285ddae334\") "
+I0920 16:14:24.927106     267 operation_generator.go:791] UnmountVolume.TearDown succeeded for volume "kubernetes.io/projected/02285d21-153e-44a8-a4f5-0c285ddae334-kube-api-access-f4z9d" pod "02285d21-153e-44a8-a4f5-0c285ddae334" (UID: "02285d21-153e-44a8-a4f5-0c285ddae334"). InnerVolumeSpecName "kube-api-access-f4z9d". PluginName "kubernetes.io/projected", VolumeGIDValue ""
+I0920 16:14:25.043791     267 reconciler_common.go:299] "Volume detached for volume \"kube-api-access-f4z9d\" (UniqueName: \"kubernetes.io/projected/02285d21-153e-44a8-a4f5-0c285ddae334-kube-api-access-f4z9d\") on node \"domu\" DevicePath \"\""
+I0920 16:14:27.008025     267 server.go:190] "Pod removed broadcasted" podUID="02285d21-153e-44a8-a4f5-0c285ddae334"
+I0920 16:14:28.947339     267 server.go:177] "Pod update broadcasted" podUID="ed858282-91f2-44ba-861f-25e6d474bf40" type="MODIFIED"
+E0920 16:14:29.406049     267 pod_workers.go:1338] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"helm\" with ImagePullBackOff: \"Back-off pulling image \\\"rancher/klipper-helm:v0.13.3-build20260727\\\": ErrImagePull: failed to pull and unpack image \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to resolve reference \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to do request: Head \\\"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\\\": dial tcp: lookup registry-1.docker.io: Try again\"" pod="kube-system/helm-install-gateway-api-crd-qlc89" podUID="ed858282-91f2-44ba-861f-25e6d474bf40"
+I0920 16:14:40.841868     267 server.go:177] "Pod update broadcasted" podUID="ed858282-91f2-44ba-861f-25e6d474bf40" type="MODIFIED"
+E0920 16:14:40.897237     267 pod_workers.go:1338] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"helm\" with ImagePullBackOff: \"Back-off pulling image \\\"rancher/klipper-helm:v0.13.3-build20260727\\\": ErrImagePull: failed to pull and unpack image \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to resolve reference \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to do request: Head \\\"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\\\": dial tcp: lookup registry-1.docker.io: Try again\"" pod="kube-system/helm-install-gateway-api-crd-qlc89" podUID="ed858282-91f2-44ba-861f-25e6d474bf40"
+E0920 16:14:59.442288     267 remote_image.go:334] "PullImage from image service failed" err="rpc error: code = Unknown desc = failed to pull and unpack image \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to resolve reference \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to do request: Head \"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\": dial tcp: lookup registry-1.docker.io: Try again" image="rancher/klipper-helm:v0.13.3-build20260727"
+E0920 16:14:59.444133     267 kuberuntime_image.go:43] "Failed to pull image" err="failed to pull and unpack image \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to resolve reference \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to do request: Head \"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\": dial tcp: lookup registry-1.docker.io: Try again" image="rancher/klipper-helm:v0.13.3-build20260727"
+E0920 16:14:59.458315     267 kuberuntime_manager.go:1854] "Unhandled Error" err="container helm start failed in pod helm-install-gateway-api-crd-qlc89_kube-system(ed858282-91f2-44ba-861f-25e6d474bf40): ErrImagePull: failed to pull and unpack image \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to resolve reference \"docker.io/rancher/klipper-helm:v0.13.3-build20260727\": failed to do request: Head \"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\": dial tcp: lookup registry-1.docker.io: Try again" logger="UnhandledError"
+E0920 16:14:59.468439     267 pod_workers.go:1338] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"helm\" with ErrImagePull: \"failed to pull and unpack image \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to resolve reference \\\"docker.io/rancher/klipper-helm:v0.13.3-build20260727\\\": failed to do request: Head \\\"https://registry-1.docker.io/v2/rancher/klipper-helm/manifests/v0.13.3-build20260727\\\": dial tcp: lookup registry-1.docker.io: Try again\"" pod="kube-system/helm-install-gateway-api-crd-qlc89" podUID="ed858282-91f2-44ba-861f-25e6d474bf40"
+[   369.53] SUMMARY: docker=skipped k3s=failed: pod logs did not carry 'Hello from Docker!' (got: NEGATIVE_CONTROL)
+[   369.59] free -m (final):
+               total        used        free      shared  buff/cache   available
+Mem:            1085         530         558         452         457         555
+Swap:              0           0           0
+PAYLOAD_DONE
+[  370.993519] reboot: Power down

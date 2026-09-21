@@ -1,0 +1,10 @@
+tag:      neg-docker-2048
+qemu:     10.0.13 (container xen-domu-qemu:latest, Debian trixie)
+kernel:   Image  sha256 d2cd6a3771a7c4fb159cdf442d72129afdb2c813043bcb54a3c078fae5818d4b
+initrd:   initrd-neg.cpio.gz  sha256 76682fc676b228c306b119e556dfbfc60cecd09923016be6b3965a4c08b4df1a
+machine:  -M virt -m 2048 -smp 4 -nographic -no-reboot -nic none
+append:   console=ttyS0 test=docker docker.timeout=1200 progress=120
+started:  2026-09-19T22:16:51Z
+finished: 2026-09-19T22:18:00Z
+exit:     0
+wall_s:   69

@@ -1,0 +1,10 @@
+tag:      neg-c-no-docker-cli
+qemu:     10.0.13 (container xen-domu-qemu:latest, Debian trixie)
+kernel:   Image  sha256 d2cd6a3771a7c4fb159cdf442d72129afdb2c813043bcb54a3c078fae5818d4b
+initrd:   neg-c-no-docker-cli.cpio.gz  sha256 5b02835492807abdcdbd53fa47afa8afcdea9213f3ade00e84cfd8b3998f6760
+machine:  -M virt -m 2048 -smp 4 -nographic -no-reboot -nic none
+append:   console=ttyS0 test=docker docker.timeout=1800 progress=120
+started:  2026-09-20T08:57:16Z
+finished: 2026-09-20T08:57:25Z
+exit:     0
+wall_s:   9

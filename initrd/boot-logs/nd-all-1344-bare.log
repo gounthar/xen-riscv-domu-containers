@@ -1,0 +1,375 @@
+
+OpenSBI v1.6
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name               : riscv-virtio,qemu
+Platform Features           : medeleg
+Platform HART Count         : 4
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 10000000Hz
+Platform Console Device     : uart8250
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : syscon-reboot
+Platform Shutdown Device    : syscon-poweroff
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 361 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 105 KB
+Firmware Heap Offset        : 0x4e000
+Firmware Heap Size          : 49 KB (total), 3 KB (reserved), 13 KB (used), 32 KB (free)
+Firmware Scratch Size       : 4096 B (total), 440 B (used), 3656 B (free)
+Runtime SBI Version         : 2.0
+Standard SBI Extensions     : ipi,pmu,srst,hsm,rfnc,time,base,legacy,dbcn
+Experimental SBI Extensions : sse,fwft,dbtr
+
+Domain0 Name                : root
+Domain0 Boot HART           : 2
+Domain0 HARTs               : 0*,1*,2*,3*
+Domain0 Region00            : 0x0000000000100000-0x0000000000100fff M: (I,R,W) S/U: (R,W)
+Domain0 Region01            : 0x0000000010000000-0x0000000010000fff M: (I,R,W) S/U: (R,W)
+Domain0 Region02            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
+Domain0 Region03            : 0x0000000080040000-0x000000008005ffff M: (R,W) S/U: ()
+Domain0 Region04            : 0x0000000080000000-0x000000008003ffff M: (R,X) S/U: ()
+Domain0 Region05            : 0x000000000c400000-0x000000000c5fffff M: (I,R,W) S/U: (R,W)
+Domain0 Region06            : 0x000000000c000000-0x000000000c3fffff M: (I,R,W) S/U: (R,W)
+Domain0 Region07            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x0000000080200000
+Domain0 Next Arg1           : 0x00000000d3e00000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+
+Boot HART ID                : 2
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv64imafdch
+Boot HART ISA Extensions    : sstc,zicntr,zihpm,zicboz,zicbom,sdtrig,svadu
+Boot HART PMP Count         : 16
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 54
+Boot HART MHPM Info         : 16 (0x0007fff8)
+Boot HART Debug Triggers    : 2 triggers
+Boot HART MIDELEG           : 0x0000000000001666
+Boot HART MEDELEG           : 0x0000000000f4b509
+[    0.000000] Booting Linux on hartid 2
+[    0.000000] Linux version 7.2.6 (@ef5de219b429) (riscv64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0, GNU ld (GNU Binutils for Debian) 2.44) #1 SMP PREEMPT Sun Sep 20 10:06:57 UTC 2026
+[    0.000000] random: crng init done
+[    0.000000] Machine model: riscv-virtio,qemu
+[    0.000000] SBI specification v2.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10006
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] efi: UEFI not found.
+[    0.000000] OF: reserved mem: 0x0000000080000000..0x000000008003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[    0.000000] OF: reserved mem: 0x0000000080040000..0x000000008005ffff (128 KiB) nomap non-reusable mmode_resv0@80040000
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: base ISA extensions acdfhim
+[    0.000000] riscv: ELF capabilities acdfim
+[    0.000000] Queued spinlock using Ziccrse: enabled
+[    0.000000] Zone ranges:
+[    0.000000]   DMA32    [mem 0x0000000080000000-0x00000000d3ffffff]
+[    0.000000]   Normal   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080000000-0x000000008005ffff]
+[    0.000000]   node   0: [mem 0x0000000080060000-0x00000000d3ffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080000000-0x00000000d3ffffff]
+[    0.000000] On node 0, zone DMA32: 16384 pages in unavailable ranges
+[    0.000000] percpu: Embedded 31 pages/cpu s88088 r8192 d30696 u126976
+[    0.000000] Kernel command line: console=ttyS0 test=all
+[    0.000000] Unknown kernel command line parameters "test=all", will be passed to user space.
+[    0.000000] printk: log buffer data + meta data: 131072 + 458752 = 589824 bytes
+[    0.000000] Dentry cache hash table entries: 262144 (order: 9, 2097152 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.000000] software IO TLB: SWIOTLB bounce buffer size adjusted to 1MB
+[    0.000000] software IO TLB: area num 4.
+[    0.000000] software IO TLB: SWIOTLB bounce buffer size roundup to 2MB
+[    0.000000] software IO TLB: mapped [mem 0x00000000d1400000-0x00000000d1600000] (2MB)
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 344064
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=4, Nodes=1
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU event tracing is enabled.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=64 to nr_cpu_ids=4.
+[    0.000000] 	Trampoline variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=4
+[    0.000000] RCU Tasks: Setting shift to 2 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=4.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 64 local interrupts mapped
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.000133] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[    0.000395] riscv-timer: Timer interrupt in S-mode is available via sstc extension
+[    0.024817] Console: colour dummy device 80x25
+[    0.028975] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=40000)
+[    0.029206] pid_max: default: 32768 minimum: 301
+[    0.043032] Mount-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.043216] Mountpoint-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.072796] VFS: Finished mounting rootfs on nullfs
+[    0.165846] riscv: ELF compat mode supported
+[    0.166581] ASID allocator using 16 bits (65536 entries)
+[    0.171965] rcu: Hierarchical SRCU implementation.
+[    0.172057] rcu: 	Max phase no-delay instances is 1000.
+[    0.174861] Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level
+[    0.181883] EFI services will not be available.
+[    0.185903] smp: Bringing up secondary CPUs ...
+[    0.234490] smp: Brought up 1 node, 4 CPUs
+[    0.260372] Memory: 1096116K/1376256K available (13307K kernel code, 6033K rwdata, 6144K rodata, 2479K init, 454K bss, 275968K reserved, 0K cma-reserved)
+[    0.292522] devtmpfs: initialized
+[    0.334873] posixtimers hash table entries: 2048 (order: 3, 32768 bytes, linear)
+[    0.335878] futex hash table entries: 1024 (65536 bytes on 1 NUMA nodes, total 64 KiB, linear).
+[    0.374904] DMI: not present or invalid.
+[    0.384063] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.395205] DMA: preallocated 256 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.396727] audit: initializing netlink subsys (disabled)
+[    0.405385] audit: type=2000 audit(0.344:1): state=initialized audit_enabled=0 res=1
+[    0.420176] thermal_sys: Registered thermal governor 'step_wise'
+[    0.423162] cpuidle: using governor menu
+[    0.523987] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    0.524212] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[    0.540982] ACPI: Interpreter disabled.
+[    0.542211] iommu: Default domain type: Translated
+[    0.542290] iommu: DMA domain TLB invalidation policy: strict mode
+[    0.558834] SCSI subsystem initialized
+[    0.567392] usbcore: registered new interface driver usbfs
+[    0.568739] usbcore: registered new interface driver hub
+[    0.569072] usbcore: registered new device driver usb
+[    0.577158] Advanced Linux Sound Architecture Driver Initialized.
+[    0.621207] vgaarb: loaded
+[    0.631611] clocksource: Switched to clocksource riscv_clocksource
+[    0.645029] pnp: PnP ACPI: disabled
+[    0.809208] NET: Registered PF_INET protocol family
+[    0.811396] IP idents hash table entries: 32768 (order: 6, 262144 bytes, linear)
+[    0.832511] tcp_listen_portaddr_hash hash table entries: 1024 (order: 2, 16384 bytes, linear)
+[    0.832752] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    0.833002] TCP established hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    0.833804] TCP bind hash table entries: 16384 (order: 7, 524288 bytes, linear)
+[    0.834883] TCP: Hash tables configured (established 16384 bind 16384)
+[    0.838109] UDP hash table entries: 1024 (order: 4, 65536 bytes, linear)
+[    0.842406] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    0.858878] RPC: Registered named UNIX socket transport module.
+[    0.859046] RPC: Registered udp transport module.
+[    0.859078] RPC: Registered tcp transport module.
+[    0.859104] RPC: Registered tcp-with-tls transport module.
+[    0.859127] RPC: Registered tcp NFSv4.1 backchannel transport module.
+[    0.880420] cpu0: scalar unaligned word access speed is 7.79x byte access speed (fast)
+[    0.880408] cpu1: scalar unaligned word access speed is 8.02x byte access speed (fast)
+[    0.880409] cpu3: scalar unaligned word access speed is 8.58x byte access speed (fast)
+[    0.880367] cpu2: scalar unaligned word access speed is 7.20x byte access speed (fast)
+[    0.884255] PCI: CLS 0 bytes, default 64
+[    0.893589] workingset: timestamp_bits=46 (anon: 41) max_order=19 bucket_order=0 (anon: 0)
+[    0.901985] Unpacking initramfs...
+[    0.907948] NFS: Registering the id_resolver key type
+[    0.909072] Key type id_resolver registered
+[    0.909200] Key type id_legacy registered
+[    0.910933] nfs4filelayout_init: NFSv4 File Layout Driver Registering...
+[    0.911759] nfs4flexfilelayout_init: NFSv4 Flexfile Layout Driver Registering...
+[    0.914920] 9p: Installing v9fs 9p2000 file system support
+[    0.922418] NET: Registered PF_ALG protocol family
+[    0.923424] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 244)
+[    0.924747] io scheduler mq-deadline registered
+[    0.924874] io scheduler kyber registered
+[    0.925316] io scheduler bfq registered
+[    0.942433] riscv-plic: plic@c000000: mapped 96 interrupts with 4 handlers for 8 contexts.
+[    0.953879] pci-host-generic 30000000.pci: host bridge /soc/pci@30000000 ranges:
+[    0.955083] pci-host-generic 30000000.pci:       IO 0x0003000000..0x000300ffff -> 0x0000000000
+[    0.957204] pci-host-generic 30000000.pci:      MEM 0x0040000000..0x007fffffff -> 0x0040000000
+[    0.957479] pci-host-generic 30000000.pci:      MEM 0x0400000000..0x07ffffffff -> 0x0400000000
+[    0.959261] pci-host-generic 30000000.pci: Memory resource size exceeds max for 32 bits
+[    0.960536] pci-host-generic 30000000.pci: ECAM at [mem 0x30000000-0x3fffffff] for [bus 00-ff]
+[    0.966142] pci-host-generic 30000000.pci: PCI host bridge to bus 0000:00
+[    0.967369] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    0.968131] pci_bus 0000:00: root bus resource [io  0x0000-0xffff]
+[    0.968515] pci_bus 0000:00: root bus resource [mem 0x40000000-0x7fffffff]
+[    0.968550] pci_bus 0000:00: root bus resource [mem 0x400000000-0x7ffffffff]
+[    0.976221] pci 0000:00:00.0: [1b36:0008] type 00 class 0x060000 conventional PCI endpoint
+[    0.996765] pci_bus 0000:00: resource 4 [io  0x0000-0xffff]
+[    0.997034] pci_bus 0000:00: resource 5 [mem 0x40000000-0x7fffffff]
+[    0.997091] pci_bus 0000:00: resource 6 [mem 0x400000000-0x7ffffffff]
+[    1.785511] Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled
+[    1.834950] printk: legacy console [ttyS0] disabled
+[    1.850863] 10000000.serial: ttyS0 at MMIO 0x10000000 (irq = 12, base_baud = 230400) is a 16550A
+[    1.858608] printk: legacy console [ttyS0] enabled
+[    2.013075] loop: module loaded
+[    2.045337] e1000e: Intel(R) PRO/1000 Network Driver
+[    2.045915] e1000e: Copyright(c) 1999 - 2015 Intel Corporation.
+[    2.053627] usbcore: registered new interface driver uas
+[    2.054739] usbcore: registered new interface driver usb-storage
+[    2.059371] mousedev: PS/2 mouse device common for all mice
+[    2.076882] goldfish_rtc 101000.rtc: registered as rtc0
+[    2.079291] goldfish_rtc 101000.rtc: setting system clock to 2026-09-20T16:54:29 UTC (1789923269)
+[    2.105364] usbcore: registered new interface driver usbhid
+[    2.106420] usbhid: USB HID core driver
+[    2.110291] riscv-pmu-sbi: SBI PMU extension is available
+[    2.114387] riscv-pmu-sbi: 16 firmware and 18 hardware counters
+[    2.121081] riscv-pmu-sbi: Perf sampling/filtering is not supported as sscof extension is not available
+[    2.162858] IPVS: Registered protocols (TCP, UDP)
+[    2.165782] IPVS: Connection hash table configured (size=4096, memory=32Kbytes)
+[    2.172657] IPVS: ipvs loaded.
+[    2.173371] IPVS: [rr] scheduler registered.
+[    2.179315] Initializing XFRM netlink socket
+[    2.183314] NET: Registered PF_INET6 protocol family
+[    2.224063] Segment Routing with IPv6
+[    2.225596] In-situ OAM (IOAM) with IPv6
+[    2.231783] NET: Registered PF_PACKET protocol family
+[    2.234652] Bridge firewalling registered
+[    2.241551] 9pnet: Installing 9P2000 support
+[    2.242801] Key type dns_resolver registered
+[    4.235126] clk: Disabling unused clocks
+[    4.238481] PM: genpd: Disabling unused power domains
+[    4.239956] ALSA device list:
+[    4.240701]   No soundcards found.
+[   17.081659] Freeing initrd memory: 200208K
+[   17.326608] Freeing unused kernel image (initmem) memory: 2476K
+[   17.329990] Run /init as init process
+PAYLOAD_START
+[    18.37] rootfs (initramfs): rootfs 537M total, 488M used, 49M free; MemTotal 1272M
+[    21.35] payload: image intact (variant all, 1548 files, 510090752 bytes, 28 named files, checked in 3s)
+[    21.44] stage 1: initramfs rootfs, moving the root to tmpfs (size=90%)
+[    21.49] free -m (stage 1 start):
+               total        used        free      shared  buff/cache   available
+Mem:            1272         541         735         488         490         730
+Swap:              0           0           0
+[    36.89] stage 1: switching root
+[    38.97] cgroups: available:cpuset cpu io memory hugetlb pids 
+[    39.06] cgroups: delegated: cpuset cpu io memory hugetlb pids
+[    39.42] stage 2: root is tmpfs, test=all
+[    39.75] rootfs (real root): tmpfs 1145M total, 488M used, 657M free; MemTotal 1272M
+[    39.78] payload: image variant all (docker=1 k3s=1)
+[    39.80] payload: will run disk=1 docker=1 k3s=1
+[    40.59] net: no real interface; falling back to dummy0
+[    41.04] net: using dummy0 (dummy) with 10.0.2.15, node will register as that
+[    41.19] net: lo 127.0.0.1/8 dummy0 10.0.2.15/24 
+[    41.33] net: default route: default via 10.0.2.2 dev dummy0 onlink 
+[    41.38] free -m (stage 2 start):
+               total        used        free      shared  buff/cache   available
+Mem:            1272         539         737         488         491         733
+Swap:              0           0           0
+[    41.52] === Disk test (device /dev/xvda, timeout 300s) ===
+[    41.57] disk: nothing at /dev/xvda, skipping; this is not a failure
+[    41.67] disk: block devices the kernel knows about: 
+[    41.71] === Docker test (timeout 600s) ===
+[    41.74] free -m (before docker):
+               total        used        free      shared  buff/cache   available
+Mem:            1272         539         737         488         491         733
+Swap:              0           0           0
+[    43.15] docker: runc version 1.4.0 commit: v1.4.0-0-g8bd78a99 spec: 1.3.0 go: go1.24.4 libseccomp: 2.6.0 
+[    49.99] containerd: ready after 6s
+[    50.50] docker: overlayfs works on the tmpfs root, using the default driver
+[    77.98] dockerd: ready after 27s
+[    78.04] docker: dockerd started with: 
+[    79.00] docker: storage driver: overlayfs
+[    79.03] docker: loading /var/lib/rancher/k3s/agent/images/hello-world-latest.tar
+Loaded image: hello-world:latest
+[    80.46] docker: loading /var/lib/rancher/k3s/agent/images/busybox-1.37.0.tar
+Loaded image: busybox:1.37.0
+[    94.03] docker: output of hello-world:latest:
+
+Hello from Docker!
+This message shows that your installation appears to be working correctly.
+
+To generate this message, Docker took the following steps:
+ 1. The Docker client contacted the Docker daemon.
+ 2. The Docker daemon pulled the "hello-world" image from the Docker Hub.
+    (riscv64)
+ 3. The Docker daemon created a new container from that image which runs the
+    executable that produces the output you are currently reading.
+ 4. The Docker daemon streamed that output to the Docker client, which sent it
+    to your terminal.
+
+To try something more ambitious, you can run an Ubuntu container with:
+ $ docker run -it ubuntu bash
+
+Share images, automate workflows, and more with a free Docker ID:
+ https://hub.docker.com/
+
+For more examples and ideas, visit:
+ https://docs.docker.com/get-started/
+[   100.12] docker: seccomp inside the container:
+Seccomp:	2
+Seccomp_filters:	1
+DOCKER_OK
+[   100.28] free -m (after docker):
+               total        used        free      shared  buff/cache   available
+Mem:            1272         570         706         493         497         701
+Swap:              0           0           0
+[   101.77] prune: removing the Docker stack to free RAM
+[   102.58] === K3s test (node timeout 1800s, pod timeout 900s) ===
+[   102.65] free -m (before k3s):
+               total        used        free      shared  buff/cache   available
+Mem:            1272         360         916         326         329         912
+Swap:              0           0           0
+[   122.31] k3s: k3s version v1.37.0+k3s1 (bb7cf065)
+[   122.54] k3s: airgap images present: busybox-1.37.0.tar hello-world-latest.tar local-path-provisioner-v0.0.37.tar mirrored-coredns-coredns-1.14.7.tar pause-3.10.2.tar 
+[   152.95] k3s kubeconfig: still waiting (30s/120s)
+[   153.13] k3s: | time="2026-09-20T16:56:57Z" level=info msg="certificate CN=domu signed by CN=k3s-server-ca@1789923398: notBefore=2026-09-20 15:56:57 +0000 UTC notAfter=2027-09-20 15:56:57 +0000 UT
+[   153.38] k3s: | mem 788M available, rootfs 327M used of 1.2G
+[   162.15] k3s kubeconfig: ready after 39s
+[   195.97] k3s node Ready: still waiting (34s/1800s)
+[   196.20] k3s: | time="2026-09-20T16:57:38Z" level=info msg="Imported 1 images from /var/lib/rancher/k3s/agent/images/pause-3.10.2.tar in 2.2991105s"
+[   196.56] k3s: | mem 649M available, rootfs 365M used of 1.2G
+[   239.17] k3s node Ready: still waiting (77s/1800s)
+[   239.65] k3s: | I0920 16:58:26.940191     778 kubelet.go:389] "Adding static pod path" path="/var/lib/rancher/k3s/agent/pod-manifests"
+[   240.04] k3s: | mem 599M available, rootfs 369M used of 1.2G
+[   268.61] k3s node Ready: ready after 107s
+[   269.05] prune: removing the imported airgap tars (38064K)
+[   269.52] free -m (k3s node Ready):
+               total        used        free      shared  buff/cache   available
+Mem:            1272         685         590         332         336         586
+Swap:              0           0           0
+[   278.86] k3s: domu   Ready   control-plane   33s   v1.37.0+k3s1   10.0.2.15   <none>   Debian GNU/Linux 13 (trixie)   7.2.6 (riscv64)   containerd://2.3.4-k3s1
+[   297.30] k3s pod apply: ready after 18s
+[   339.22] k3s test pod: still waiting (42s/900s)
+[   386.21] k3s: | pod: payload-test   0/1   Completed   0     88s
+[   413.88] k3s test pod: ready after 117s
+[   422.66] k3s: logs of pod payload-test:
+
+Hello from Docker!
+This message shows that your installation appears to be working correctly.
+
+To generate this message, Docker took the following steps:
+ 1. The Docker client contacted the Docker daemon.
+ 2. The Docker daemon pulled the "hello-world" image from the Docker Hub.
+    (riscv64)
+ 3. The Docker daemon created a new container from that image which runs the
+    executable that produces the output you are currently reading.
+ 4. The Docker daemon streamed that output to the Docker client, which sent it
+    to your terminal.
+
+To try something more ambitious, you can run an Ubuntu container with:
+ $ docker run -it ubuntu bash
+
+Share images, automate workflows, and more with a free Docker ID:
+ https://hub.docker.com/
+
+For more examples and ideas, visit:
+ https://docs.docker.com/get-started/
+K3S_OK
+[   422.86] free -m (after k3s):
+               total        used        free      shared  buff/cache   available
+Mem:            1272         877         398         449         454         394
+Swap:              0           0           0
+[   427.05] SUMMARY: docker=ok k3s=ok disk=skipped: no block device at /dev/xvda
+[   427.12] free -m (final):
+               total        used        free      shared  buff/cache   available
+Mem:            1272         523         752         449         454         748
+Swap:              0           0           0
+PAYLOAD_DONE
+[  428.520781] reboot: Power down

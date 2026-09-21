@@ -330,6 +330,8 @@ and harmless.
 | `debug=1` | off | drop to a shell instead of powering off, including after a failure |
 | `keep=1` | off | do not delete the unused stack or the imported image tars |
 | `k3s.full=1` | off | do not disable traefik, servicelb and metrics-server |
+| `k3s.cfgtimeout=SEC` | 120 | budget for the K3s server to write its kubeconfig; raise it under Xen (see below) |
+| `k3s.restarts=N` | 0 | restart the K3s server up to N times if it exits; a server that exits is now reported at once rather than waited on |
 | `k3s.timeout=SEC` | 1800 | budget for the node to reach Ready |
 | `k3s.podtimeout=SEC` | 900 | budget for the test pod |
 | `docker.timeout=SEC` | 600 | budget for each `docker run` |
@@ -388,8 +390,187 @@ After `PAYLOAD_DONE` the guest powers off, so QEMU exits on its own.
 
 These come from getting Xen, dom0 and this payload assembled with the
 `automation/build/debian/trixie-riscv64` tooling. They are things that cost time and
-would have been invisible. **No domU has been booted yet**, so this section is
-"everything learned getting to the point of trying", not a report of a working guest.
+would have been invisible.
+
+**Status 2026-09-21:** a domU now boots through dom0 to userspace under QEMU TCG and
+passes the Docker and K3s tests (`SUMMARY: docker=ok k3s=ok disk=skipped`, on a native
+Linux host; see "Host speed decides K3s" below). Getting there
+needed the three subsections that follow this paragraph, two of which change code in
+Xen's toolstack or the guest kernel. netfront and blkfront are **not** shown; see "What
+has not been tested".
+
+### Without `sstc` the guest can livelock under TCG, and the workaround is only safe for one vCPU
+
+`tools/libs/light/libxl_riscv.c:25` hardcodes the domU's `riscv,isa` as
+`"rv64imafdc_ssaia"`. Xen already enables the extension for every guest vcpu
+(`xen/arch/riscv/domain.c:523`, `ENVCFG_STCE`) and dom0 gets it from the host device
+tree, but the domU is not told (the string read `"rv64imafdc_sstc"` until a later
+commit removed `sstc`, consistent with guest Sstc being unsupported, see below). Linux then programs its timer through SBI
+`set_timer`, two world switches per tick. Under TCG a tick costs 7-15 ms against a
+4 ms period and the guest livelocks one instruction after `local_irq_enable()`: last
+line `sched_clock: 64 bits at 10MHz`, QEMU at 100% CPU, nothing more, ever.
+
+Guest-side Sstc is not supported on this branch yet, deliberately: Xen does not save or
+restore `vstimecmp` on a context switch, so a guest using Sstc would have its timer
+clobbered whenever another vCPU runs on the same physical CPU. The upstream plan lists it
+as future work. **The change below is a workaround, safe only with one vCPU per physical
+CPU** (we run `sched=null`, `dom0_max_vcpus=1` and a 1-vCPU domU). With it, rebuild the
+tools and the dom0 initrd:
+
+```c
+{"xen-3.0-riscv64", "riscv,timer", "riscv", "rv64imafdc_ssaia_sstc", "riscv,sv57"},
+```
+
+The proof it took is in the guest's own log: a **second**
+`riscv-timer: Timer interrupt in S-mode is available via sstc extension` line (the first
+is dom0's). On hardware, or on a faster host, the SBI path may be fast enough to boot
+without it.
+
+### The event-channel interrupt only clears on a guest exit
+
+With `sstc` the guest stops exiting to Xen on every tick, and that exposes a second
+problem. Xen raises the event-channel interrupt by setting `IRQ_VS_EVTCHN` in `hvip`
+(`vcpu_mark_events_pending()`, `domain.c:347`) and only ever clears it in
+`vcpu_update_evtchn_irq()`, called from `enter_hypervisor_from_guest()`. The guest's
+handler clears the pending flag in shared memory and makes no hypercall, so the line
+stays asserted and re-fires with no exit to break the loop. Symptom: the guest stops
+right after `Xen: initializing cpu0` / `rcu: Hierarchical SRCU implementation.`.
+
+**There is no proper fix yet.** The guest kernel that ran the payload carries an
+experiment, not a fix: one hypercall at the end of `xen_riscv_callback()` in
+`arch/riscv/xen/enlighten.c`, purely to force an exit:
+
+```c
+	xen_evtchn_do_upcall();
+	HYPERVISOR_xen_version(XENVER_version, NULL);	/* experiment: force an exit */
+```
+
+(plus `#include <xen/interface/version.h>`). The real fix belongs in Xen, with the
+authors of the event-channel delivery code. Do not ship the above.
+
+### dom0 needs devpts and `xenconsoled` before `xl create -c`
+
+libxl waits ten seconds for `/local/domain/N/console/tty` and reports
+`console tty: timed out`, which names no cause. That node is written by `xenconsoled`,
+which ships in the initrd but is not started. Started by hand it fails with
+`Failed to create tty for domain-1 (errno = 2)`, because nothing mounts devpts. In
+dom0, before the create:
+
+```sh
+mkdir -p /dev/pts && mount -t devpts devpts /dev/pts
+xenconsoled --pid-file /var/run/xenconsoled.pid
+```
+
+Check liveness on the pid file, not with `ps | grep`, which matches itself.
+
+### `libgcc_s.so.1` must be in the dom0 initrd
+
+`xl create` without `-c` creates the domain and then aborts:
+`libgcc_s.so.1 must be installed for pthread_cancel to work` (rc=134). glibc
+`dlopen`s it, so it appears in no `DT_NEEDED` and no closure check over ELF headers will
+find it. Add it to the copy list by hand.
+
+### Drop `keep_bootcon` from the domU command line
+
+`keep_bootcon` with `earlycon=sbi` keeps the SBI console alive after `hvc0` takes over,
+and every character becomes an ecall, i.e. a VM exit. A live guest looks hung for tens
+of minutes. Keep `earlycon=sbi`, which is what makes a pre-console failure visible;
+drop `keep_bootcon`.
+
+### Do not use `xl debug-keys q` on this port
+
+`arch_dump_domain_info()` and `arch_dump_vcpu_info()` are `assert_failed()` stubs, so the
+key that dumps domain state halts the hypervisor. Also: `xc_domain_destroy` fails with
+`Function not implemented` (`domain_relinquish_resources()` returns `-ENOSYS`), so a failed
+create leaves a zombie domain and dom0 must be restarted between attempts.
+
+### Raise `k3s.cfgtimeout` under Xen
+
+The default 120 s for the K3s server to write its kubeconfig ran out under Xen on TCG
+while the server was still starting (`server is not ready`, plenty of memory, no OOM).
+The domU config used from then on:
+
+```
+extra = "console=hvc0 earlycon=sbi test=all net.addr=192.168.128.2/24 net.gw=192.168.128.1 k3s.cfgtimeout=1800 k3s.restarts=3 k3s.timeout=5400 k3s.podtimeout=2400 disk.timeout=900 progress=60"
+```
+
+Add `k3s.restarts=3` too: the payload then restarts a K3s server that exits (same data
+dir), and in any case stops waiting on a dead one.
+
+### The `block` hotplug script needs `/dev/stdin`
+
+With a `disk =` line, `xl create` fails after a long pause:
+`killing execution of /etc/xen/scripts/block add because of timeout`, then the same for
+`block remove`. The script is not stuck on the disk. It is stuck in `claim_lock`
+(`tools/hotplug/Linux/locking.sh`), which loops until `stat -L /dev/stdin <lockfile>`
+succeeds. A dom0 whose `/dev` is only devtmpfs has no `/dev/stdin`, so the loop never
+ends. The vif script never takes that lock, which is why networking attaches and the disk
+does not. In dom0, before the create:
+
+```sh
+ln -sfn /proc/self/fd /dev/fd
+ln -sf /proc/self/fd/0 /dev/stdin
+ln -sf /proc/self/fd/1 /dev/stdout
+ln -sf /proc/self/fd/2 /dev/stderr
+```
+
+A dom0 image built from `xen-riscv-builder` after 2026-09-21 does this in its rcS, along
+with mounting devpts; four runs with a disk attached completed `block add` with no manual
+step.
+
+To see where a hotplug script hangs, trace it to a file before the create, so the trace
+survives the kill: `sed -i '1a exec 2>>/var/log/xen/block-trace.log; set -x'
+/etc/xen/scripts/block`.
+
+### PV network and PV disk need two grant-table changes (experiments)
+
+As the branches stand, dom0 attaches both the vif and the disk, and the guest then logs
+`xen:grant_table: grant table add_to_physmap failed, err=-38`. Every PV frontend fails
+after it: `vbd vbd-51712: 28 granting access to 1 ring pages` for the disk, `vif vif-0: no
+queues` / `22 creating queues` for the network. The payload falls back to `dummy0` and
+skips the disk test. The console is unaffected: its ring page comes from a fixed
+parameter, not from a grant.
+
+Two gaps, one on each side, both filled in 2026-09-22 as **experiments**:
+
+- **Xen:** `xenmem_add_to_physmap_one()` (`xen/arch/riscv/mm.c`) has no
+  `XENMAPSPACE_grant_table` case and returns `-ENOSYS`. Copying ARM's case (call
+  `gnttab_map_frame()`, then drop the page reference it took) is enough for Xen to grow the
+  guest's grant table: `Expanding d1 grant table from 1 to 2 frames`.
+- **Guest:** in `baptleduc/linux-xen-riscv`, `arch_gnttab_init()`
+  (`arch/riscv/xen/grant-table.c`) returns `-ENOSYS` where ARM's returns 0, so
+  `gnttab_init()` stops before it maps the shared frames and `enlighten.c` ignores the
+  error. With only the Xen change, the guest oopses writing through a NULL grant-table base
+  (fault address `0x2`, the `domid` field of entry 0). Returning 0, as ARM does, fixes that.
+  (`arch_gnttab_map_shared()` is also `-ENOSYS`, but so is ARM's, and a PVH guest never calls
+  it.)
+
+With both: `SUMMARY: docker=ok k3s=ok disk=ok`, `/dev/xvda` passes a raw and an ext4
+write/read-back, the guest uses a real `eth0`, and dom0 pings the guest over `xenbr0` 10 of
+10 (four runs on a fast Linux host, QEMU TCG). The diffs are small and are not proposed
+fixes; they belong to the people whose code they touch. Ask for them if you want to
+reproduce this.
+
+### Host speed decides K3s
+
+With that config, K3s passed under Xen six times out of six on a native Linux host with an
+AMD Ryzen 5 230: kubeconfig after 15-18 s, node Ready after 49-77 s, the test pod done
+after 45-62 s, no restart. Two of those runs used a Xen and a guest kernel carrying debug
+instruments; the other four (2026-09-21 night) used builds with the instruments removed,
+keeping only the sstc workaround and the event-channel experiment. On
+an i9-12900H laptop under WSL2 the same image ran about 3x slower. There, K3s once exited
+on its own startup deadline (`failed to create crd ... context canceled`) and once reached
+node Ready after 339 s, after which the server exited during the pod wait, once with
+status 0 and no error and once on the same CRD startup deadline; the restarts did not
+rescue it and the test pod never finished. Under TCG this stack sits close to K3s's internal deadlines, so run
+it on a fast, otherwise idle, native Linux host.
+
+### Read the log by occurrence
+
+dom0 prints the same lines the guest does, about four minutes earlier:
+`Kernel command line:`, `Freeing unused kernel image`, `Xen: initializing cpu0`, the
+sstc line. **The guest's is the second occurrence.** The initmem size also tells them
+apart. A monitor that greps for a guest milestone will fire on dom0 first.
 
 ### `dom0_mem` goes on Xen's command line, not dom0's
 
@@ -782,19 +963,24 @@ all is still untested.
 
 ## What has not been tested
 
-- **No domU boot.** The payload has not been started with `xl create`. Every result
-  here is from plain `-M virt` with no hypervisor.
+- **K3s under Xen has passed six times on one host** (see "Host speed decides K3s");
+  on a slower host it is marginal. All results outside the dom0/domU section are from
+  plain `-M virt` with no hypervisor.
+- **The domU that boots needs an experimental guest-kernel change** for the event-channel
+  interrupt (above). No domU has booted on an unmodified guest kernel past that point.
 - **Nothing on riscv64 hardware.** All boots were TCG on x86_64.
-- **netfront and blkfront are unexercised.** The network and disk results here are
+- **netfront and blkfront work only with two experimental grant-table changes**, one in
+  Xen and one in the guest kernel (see "PV network and PV disk need two grant-table
+  changes"). Without them, neither frontend can share its ring. See
+  "PV network and PV disk need two grant-table changes". The network and disk results here are
   virtio: a `virtio_net` interface and a `/dev/vda` virtio-blk device. What is proven
   is that the payload handles a real interface and a real block device, not that the
   PV path works.
 - **Enabling the PV backends has not been shown to be sufficient.** That
   `xen_defconfig` compiles none is measured; that this is the whole reason there has
   never been PV networking on this port is inference.
-- **The hotplug scripts have not run under a real libxl.** They were executed in a
-  chroot with a synthetic environment, which got them past the redirect that kills
-  them silently, but `xenstore-write` could not connect and no `vif` was created.
+- **Both hotplug scripts have run under a real libxl.** `vif-bridge` bridged `vif1.0`;
+  `block add` completed once `/dev/stdin` existed.
 - **The `dom0_mem` fix is unconfirmed.** Moving it to Xen's command line is correct by
   construction, but no boot has yet both reached a shell and reported more than 512
   MiB of dom0 memory, so whether it resolves the OOM is open.
@@ -812,7 +998,8 @@ all is still untested.
 - **The `.zst` archives have never been booted.**
 - **`initrd-full.cpio.gz` has only been booted with `test=docker` and `test=k3s`**,
   never with `k3s.full=1` end to end.
-- **`earlycon=sbi` under Xen is reasoning, not measurement.**
+- **`earlycon=sbi` under Xen** was what made the pre-console hang visible; measured, but
+  only on this one configuration.
 
 ## Files
 
@@ -822,7 +1009,7 @@ all is still untested.
 | `kernel/check-fragment.py` | verifies every symbol survived the merge |
 | `kernel/NOTES.md` | how the test kernel was built, and its config |
 | `initrd/NOTES.md` | the authoritative payload notes: floors, guard, contents, build |
-| `initrd/init` | the source of what actually runs; byte-identical to the copy inside each archive |
+| `initrd/init` | the source of what actually runs. Since `k3s.cfgtimeout=` was added only `initrd.cpio.gz` (the `all` variant) has been rebuilt; the `docker`, `k3s` and `full` archives still carry the previous `init`, which has no `k3s.cfgtimeout` |
 | `initrd/build.sh` | rebuilds every variant from scratch |
 | `validation/harness/` | `run-boot.sh`, `scan.sh`, `analyse.py` |
 | `validation/logs/` | console log and meta file for every boot |

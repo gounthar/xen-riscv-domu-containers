@@ -1,0 +1,10 @@
+tag:      neg-a-missing-file
+qemu:     10.0.13 (container xen-domu-qemu:latest, Debian trixie)
+kernel:   Image  sha256 d2cd6a3771a7c4fb159cdf442d72129afdb2c813043bcb54a3c078fae5818d4b
+initrd:   neg-a-missing-file.cpio.gz  sha256 8fa6ae2484db06a36f56b45c6830d638f4d13c2d48a2ba340a29d5c2b09b1b7e
+machine:  -M virt -m 2048 -smp 4 -nographic -no-reboot -nic none
+append:   console=ttyS0 test=docker docker.timeout=1800 progress=120
+started:  2026-09-20T08:56:57Z
+finished: 2026-09-20T08:57:08Z
+exit:     0
+wall_s:   11

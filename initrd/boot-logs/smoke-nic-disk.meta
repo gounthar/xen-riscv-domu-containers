@@ -1,0 +1,12 @@
+tag:      smoke-nic-disk
+qemu:     10.0.13 (container xen-domu-qemu:latest, Debian trixie)
+kernel:   Image  sha256 542e9cecc0dc99d198998cd98d9656a7668e0316a24efb6e4b76e5b691e3359b
+initrd:   initrd-docker.cpio.gz  sha256 228fe71d1f494143db4cc2386a7c2898386c7c1a0a4abd49b274b7192c402a54
+machine:  -M virt -m 640 -smp 4 -nographic -no-reboot -drive file=/work/scratch/smoke-nic-disk.img,if=none,id=d0,format=raw -device virtio-blk-device,drive=d0 -netdev user,id=n0,restrict=y -device virtio-net-device,netdev=n0
+disk:     64 MiB raw virtio-blk, zeroed before the run
+nic:      virtio-net, user mode, restrict=y
+append:   console=ttyS0 test=disk disk.dev=/dev/vda
+started:  2026-09-20T16:36:17Z
+finished: 2026-09-20T16:36:51Z
+exit:     0
+wall_s:   34

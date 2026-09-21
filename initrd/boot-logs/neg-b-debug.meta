@@ -1,0 +1,10 @@
+tag:      neg-b-debug
+qemu:     10.0.13 (container xen-domu-qemu:latest, Debian trixie)
+kernel:   Image  sha256 d2cd6a3771a7c4fb159cdf442d72129afdb2c813043bcb54a3c078fae5818d4b
+initrd:   neg-b-no-sentinel.cpio.gz  sha256 3f605af42fb995f3fab49eb2697ca007e6d632df61ff644552e07789b88913f9
+machine:  -M virt -m 2048 -smp 4 -nographic -no-reboot -nic none
+append:   console=ttyS0 test=docker debug=1
+started:  2026-09-20T08:57:25Z
+finished: 2026-09-20T08:59:55Z
+exit:     124
+wall_s:   150

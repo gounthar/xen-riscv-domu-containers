@@ -1,3 +1,29 @@
+> **This file is out of date. `initrd/NOTES.md` is authoritative.**
+>
+> It was written before the payload was split into four variants and before
+> the artifacts were rebuilt on 2026-09-20 for the disk test and the
+> real-interface change. Three things in it are wrong:
+>
+> - The artifact table names `initrd/initrd.cpio.gz` as 213 804 065 bytes.
+>   The file that ships is 205 016 731 bytes, so the SHA-256 beside it
+>   describes an artifact that no longer exists.
+> - It gives a single RAM floor of 1344 MiB. That is the *recommended* size
+>   for the `all` variant, not a floor and not universal. The measured
+>   floors are 560 (`docker`), 1024 (`k3s`), 1248 (`all`) and 1728 (`full`)
+>   MiB; see "RAM: the floor, and why the old numbers were wrong" in
+>   `initrd/NOTES.md`.
+> - It describes one initrd. There are four: `docker`, `k3s`, `all`, `full`.
+> - It says nothing has run under Xen. Since 2026-09-21 the payload has: a domU
+>   started through dom0 and `xl create`, under QEMU TCG, runs Docker and K3s
+>   (`SUMMARY: docker=ok k3s=ok`, six of six runs on a fast Linux host), with a
+>   Xen guest kernel from `baptleduc/linux-xen-riscv`, not the kernel described
+>   below. PV network and PV disk work too, but only with two experimental
+>   grant-table changes. Nothing on hardware. See `REPLICATION.md`,
+>   "Notes for the dom0 and domU path".
+>
+> Kept rather than deleted because the prose around those numbers is still
+> accurate and `REPLICATION.md` links into it.
+
 # riscv64 container test payload
 
 A kernel and an initrd that boot straight into two tests, print greppable
@@ -14,7 +40,8 @@ RAM, nothing is mounted from a disk, and the only network is a `dummy0`
 interface with a static address, which exists because K3s refuses to start
 without a default route.
 
-**Nothing here has been run under Xen.** Everything was developed and verified
+**Nothing here has been run under Xen.** *[Out of date since 2026-09-21; see the
+banner at the top.]* Everything was developed and verified
 on plain `qemu-system-riscv64 -M virt`, under TCG emulation on an x86_64 host.
 See "Not tested" at the end, which is the section to read before drawing any
 conclusion about Xen.
@@ -500,6 +527,8 @@ different `Image` checksum.
 Read this before concluding anything about Xen.
 
 **Nothing has been run under Xen.** No domU boot, no Xen build, no Xen host.
+*[Out of date: true when written, overtaken on 2026-09-21; see the banner at the top
+and `REPLICATION.md`. What follows about Linux 7.2.6 still holds.]*
 Every result in this repository comes from `qemu-system-riscv64 -M virt` with no
 hypervisor involved.
 
