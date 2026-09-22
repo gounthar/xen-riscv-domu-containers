@@ -28,6 +28,14 @@
 #   k3s.restarts=N        restart the server this many times if it exits (default 0)
 #   k3s.timeout=SECONDS   budget for the node to become Ready (default 1800)
 #   k3s.podtimeout=SEC    budget for the test pod (default 900)
+#   k3s.role=server|agent server (default) runs the test; agent joins one
+#   k3s.server=URL        agent only: the server to join (https://IP:6443)
+#   k3s.token=TOKEN       shared join token, passed to both roles when set
+#   k3s.nodename=NAME     node name and /etc/hosts entry (default domu)
+#   k3s.nodes=N           server: wait for N Ready nodes (default 1)
+#   k3s.podnode=NAME      server: pin the test pod to this node
+#   k3s.agenthold=SEC     agent: stay up this long after its container ran,
+#                         so the server can fetch the logs (default 180)
 #   docker.timeout=SEC    budget for the Docker test (default 600)
 #   docker.storage=NAME   force a storage driver instead of probing
 #   disk.dev=PATH         block device for the disk test (default /dev/xvda)
@@ -54,6 +62,13 @@ K3S_CFGTIMEOUT=120
 K3S_RESTARTS=0
 K3S_TIMEOUT=1800
 K3S_PODTIMEOUT=900
+K3S_ROLE=server
+K3S_SERVER=""
+K3S_TOKEN=""
+K3S_NODENAME=domu
+K3S_NODES=1
+K3S_PODNODE=""
+K3S_AGENTHOLD=180
 DOCKER_TIMEOUT=600
 DOCKER_STORAGE=auto
 DISK_DEV=/dev/xvda
@@ -272,6 +287,13 @@ parse_cmdline() {
 		k3s.restarts=*) K3S_RESTARTS=${w#k3s.restarts=} ;;
 		k3s.timeout=*) K3S_TIMEOUT=${w#k3s.timeout=} ;;
 		k3s.podtimeout=*) K3S_PODTIMEOUT=${w#k3s.podtimeout=} ;;
+		k3s.role=*) K3S_ROLE=${w#k3s.role=} ;;
+		k3s.server=*) K3S_SERVER=${w#k3s.server=} ;;
+		k3s.token=*) K3S_TOKEN=${w#k3s.token=} ;;
+		k3s.nodename=*) K3S_NODENAME=${w#k3s.nodename=} ;;
+		k3s.nodes=*) K3S_NODES=${w#k3s.nodes=} ;;
+		k3s.podnode=*) K3S_PODNODE=${w#k3s.podnode=} ;;
+		k3s.agenthold=*) K3S_AGENTHOLD=${w#k3s.agenthold=} ;;
 		docker.timeout=*) DOCKER_TIMEOUT=${w#docker.timeout=} ;;
 		docker.storage=*) DOCKER_STORAGE=${w#docker.storage=} ;;
 		disk.dev=*) DISK_DEV=${w#disk.dev=} ;;
@@ -525,7 +547,7 @@ setup_system() {
 write_hosts() {
 	cat >/etc/hosts <<-EOF
 		127.0.0.1	localhost
-		$NODE_ADDR	domu
+		$NODE_ADDR	$K3S_NODENAME
 		::1	localhost ip6-localhost ip6-loopback
 	EOF
 }
@@ -940,10 +962,12 @@ kubectl_() {
 	KUBECONFIG=/etc/rancher/k3s/k3s.yaml "$K3S_BIN/kubectl" "$@"
 }
 
+# True once at least K3S_NODES nodes report Ready. With the default of 1 this
+# is the old single-node check.
 node_ready() {
-	local s
-	s=$(kubectl_ get nodes --no-headers 2>/dev/null | awk '{print $2}')
-	[ "$s" = Ready ]
+	local n
+	n=$(kubectl_ get nodes --no-headers 2>/dev/null | awk '$2 == "Ready"' | wc -l)
+	[ "$n" -ge "$K3S_NODES" ]
 }
 
 pod_done() {
@@ -966,11 +990,23 @@ stop_k3s() {
 }
 
 start_k3s_server() {
+	if [ "$K3S_ROLE" = agent ]; then
+		PATH="$K3S_PATH" "$K3S_BIN/k3s" agent \
+			--data-dir "$K3S_DATA" \
+			--server "$K3S_SERVER" \
+			--token "$K3S_TOKEN" \
+			--node-name "$K3S_NODENAME" \
+			'--kubelet-arg=eviction-hard=memory.available<32Mi,nodefs.available<2%,imagefs.available<2%' \
+			>>/var/log/k3s.log 2>&1 &
+		K3S_PID=$!
+		return
+	fi
 	PATH="$K3S_PATH" "$K3S_BIN/k3s" server \
 		--data-dir "$K3S_DATA" \
 		${K3S_DISABLE:+--disable "$K3S_DISABLE"} \
+		${K3S_TOKEN:+--token "$K3S_TOKEN"} \
 		--write-kubeconfig-mode 644 \
-		--node-name domu \
+		--node-name "$K3S_NODENAME" \
 		'--kubelet-arg=eviction-hard=memory.available<32Mi,nodefs.available<2%,imagefs.available<2%' \
 		>>/var/log/k3s.log 2>&1 &
 	K3S_PID=$!
@@ -1022,6 +1058,10 @@ k3s_phase_fail() {
 }
 
 test_k3s() {
+	if [ "$K3S_ROLE" = agent ]; then
+		test_k3s_agent
+		return
+	fi
 	say "=== K3s test (node timeout ${K3S_TIMEOUT}s, pod timeout ${K3S_PODTIMEOUT}s) ==="
 	memline "before k3s"
 	[ -x "$K3S_BIN/k3s" ] || {
@@ -1091,7 +1131,9 @@ rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 		  name: payload-test
 		  namespace: default
 		spec:
-		  restartPolicy: Never
+		  restartPolicy: Never${K3S_PODNODE:+
+		  nodeSelector:
+		    kubernetes.io/hostname: $K3S_PODNODE}
 		  containers:
 		  - name: test
 		    image: $HELLO_IMAGE
@@ -1138,12 +1180,124 @@ rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 		return 1
 		;;
 	esac
+	say "k3s: pod ran on node: $(kubectl_ get pod payload-test -n default \
+-o jsonpath='{.spec.nodeName}' 2>/dev/null)"
+	[ "$K3S_NODES" -gt 1 ] && kubectl_ get nodes -o wide --no-headers 2>/dev/null |
+		while read -r l; do say "k3s: node: $l"; done
 
 	if [ "$K3S_RESTART_N" -gt 0 ]; then
 		K3S_RESULT="ok (after $K3S_RESTART_N server restart(s))"
 	else
 		K3S_RESULT=ok
 	fi
+	marker K3S_OK
+	memline "after k3s"
+	stop_k3s
+	return 0
+}
+
+# ------------------------------------------------------------ K3s agent --
+# The agent half of a two-node test (k3s.role=agent). It has no admin
+# kubeconfig, so everything it reports is seen locally: the kubelet
+# kubeconfig, which the server hands out only once the join token checks,
+# then the test container having run in this node's own containerd with the
+# expected output. It then stays up for k3s.agenthold seconds so the server can
+# read the pod's logs from this kubelet over the network; that read is the
+# server's half of the evidence and is reported in the server's console.
+crictl_() {
+	PATH="$K3S_PATH" "$K3S_BIN/crictl" "$@" 2>/dev/null
+}
+
+agent_joined() {
+	test -s "$K3S_DATA/agent/kubelet.kubeconfig"
+}
+
+AGENT_CID=""
+agent_container_done() {
+	AGENT_CID=$(crictl_ ps -a -q --state exited \
+		--label io.kubernetes.pod.name=payload-test | head -1)
+	[ -n "$AGENT_CID" ]
+}
+
+test_k3s_agent() {
+	say "=== K3s agent (joins ${K3S_SERVER:-<no server>} as $K3S_NODENAME) ==="
+	memline "before k3s"
+	[ -x "$K3S_BIN/k3s" ] || {
+		k3s_fail "no k3s binary at $K3S_BIN/k3s"
+		return 1
+	}
+	if [ -z "$K3S_SERVER" ] || [ -z "$K3S_TOKEN" ]; then
+		k3s_fail "k3s.role=agent needs both k3s.server= and k3s.token="
+		return 1
+	fi
+	say "k3s: $("$K3S_BIN/k3s" --version 2>&1 | head -1)"
+	mkdir -p /var/log
+	K3S_PATH="$K3S_BIN:$PATH:$K3S_BIN/aux"
+	: >/var/log/k3s.log
+	start_k3s_server
+
+	progress_extra() {
+		local l
+		l=$(tail -1 /var/log/k3s.log 2>/dev/null)
+		[ -n "$l" ] && say "k3s: | ${l:0:180}"
+	}
+
+	local rc
+	k3s_wait "$K3S_CFGTIMEOUT" "k3s agent join" agent_joined
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		k3s_phase_fail "$rc" "agent did not get a kubelet kubeconfig from $K3S_SERVER"
+		return 1
+	fi
+	say "k3s: joined: kubelet kubeconfig written"
+	memline "k3s agent joined"
+
+	# Runs 44-45: this query never matched although the server saw the pod
+	# run here. The cause was calling "k3s crictl": bin/k3s picks its tool
+	# from argv[0], so crictl ran with "crictl" as its first argument. Call
+	# the crictl link, as kubectl_ does. The listing stays as evidence.
+	progress_extra() {
+		local l
+		l=$(tail -1 /var/log/k3s.log 2>/dev/null)
+		[ -n "$l" ] && say "k3s: | ${l:0:180}"
+		PATH="$K3S_PATH" "$K3S_BIN/crictl" ps -a 2>&1 | tail -4 |
+			while read -r l; do say "k3s: | crictl: ${l:0:170}"; done
+		say "k3s: | query: $(PATH="$K3S_PATH" "$K3S_BIN/crictl" ps -a -q --state exited \
+--label io.kubernetes.pod.name=payload-test 2>&1 | tr '\n' ' ' | cut -c1-170)"
+	}
+	POLL_INTERVAL=15
+	k3s_wait "$((K3S_TIMEOUT + K3S_PODTIMEOUT))" "k3s test container on this node" \
+		agent_container_done
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		say "k3s: containers on this node:"
+		crictl_ ps -a
+		k3s_phase_fail "$rc" "the test container never ran to completion on $K3S_NODENAME"
+		return 1
+	fi
+	progress_extra() { :; }
+	local logs
+	logs=$(crictl_ logs "$AGENT_CID" 2>&1)
+	say "k3s: container $AGENT_CID of pod payload-test ran here; its output:"
+	printf '%s\n' "$logs"
+	case "$logs" in
+	*"$HELLO_TEXT"*) ;;
+	*)
+		k3s_fail "container output did not carry '$HELLO_TEXT'"
+		return 1
+		;;
+	esac
+
+	say "k3s: holding the node up ${K3S_AGENTHOLD}s for the server to read the logs"
+	local end=$(($(date +%s) + K3S_AGENTHOLD))
+	while [ "$(date +%s)" -lt "$end" ]; do
+		proc_gone "$K3S_PID" && {
+			say "k3s: WARNING the agent exited during the hold"
+			break
+		}
+		sleep 10
+	done
+	K3S_RESULT="ok (agent $K3S_NODENAME)"
 	marker K3S_OK
 	memline "after k3s"
 	stop_k3s
