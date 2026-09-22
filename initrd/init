@@ -43,6 +43,14 @@
 #   root.size=SIZE        tmpfs size for the real root (default 90%)
 #   net.addr=CIDR         address for the chosen interface (default 10.0.2.15/24)
 #   net.gw=IP             gateway for the default route (default 10.0.2.2)
+#   net.ping=IP           ping IP after the network is up, before the tests
+#   net.pingsize=N        payload bytes for that ping (default 1000, over
+#                         netback's header-copy length, so the frame's page is
+#                         grant-mapped and the receiving side copies from the
+#                         sending domain's grant)
+#   net.pingcount=N       how many (default 5)
+#   net.hold=SECONDS      stay up this long before powering off, so another
+#                         guest can reach this one
 #   progress=SECONDS      progress line interval (default 30)
 
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -77,6 +85,10 @@ DISK_MNT=/mnt/payload-disk
 ROOT_SIZE=90%
 NET_ADDR=10.0.2.15/24
 NET_GW=10.0.2.2
+NET_PING=""
+NET_PINGSIZE=1000
+NET_PINGCOUNT=5
+NET_HOLD=0
 PROGRESS=30
 QUIET_KERNEL=1
 
@@ -301,6 +313,10 @@ parse_cmdline() {
 		root.size=*) ROOT_SIZE=${w#root.size=} ;;
 		net.addr=*) NET_ADDR=${w#net.addr=} ;;
 		net.gw=*) NET_GW=${w#net.gw=} ;;
+		net.ping=*) NET_PING=${w#net.ping=} ;;
+		net.pingsize=*) NET_PINGSIZE=${w#net.pingsize=} ;;
+		net.pingcount=*) NET_PINGCOUNT=${w#net.pingcount=} ;;
+		net.hold=*) NET_HOLD=${w#net.hold=} ;;
 		progress=*) PROGRESS=${w#progress=} ;;
 		loglevel=* | quiet) QUIET_KERNEL=0 ;;
 		esac
@@ -1304,6 +1320,38 @@ test_k3s_agent() {
 	return 0
 }
 
+# --------------------------------------------------------------- ping test --
+# One guest pinging another over the PV network, which is what no other test
+# here does: every earlier run had dom0 at one end. Frames larger than
+# netback's header-copy length are the interesting case, because the receiving
+# vif then grant-copies straight from the sending domain's grant
+# (drivers/net/xen-netback/rx.c) rather than from a dom0 page.
+test_ping() {
+	[ -n "$NET_PING" ] || return 0
+	say "=== ping $NET_PING ($NET_PINGCOUNT x $NET_PINGSIZE bytes) ==="
+	# This image has no /usr/bin/ping; busybox carries the applet but the
+	# link is not installed (run 49: rc=127).
+	local out rc png
+	if command -v ping >/dev/null 2>&1; then
+		png="ping"
+	elif command -v busybox >/dev/null 2>&1; then
+		png="busybox ping"
+	else
+		marker "PING_FAIL: no ping and no busybox in this image"
+		return 0
+	fi
+	say "ping: using '$png'"
+	out=$($png -c "$NET_PINGCOUNT" -s "$NET_PINGSIZE" -W 5 "$NET_PING" 2>&1)
+	rc=$?
+	printf '%s\n' "$out"
+	if [ "$rc" -eq 0 ]; then
+		marker "PING_OK: $(printf '%s' "$out" | grep -a transmitted)"
+	else
+		marker "PING_FAIL: rc=$rc"
+	fi
+	return 0
+}
+
 # ------------------------------------------------------------------- finish --
 fallback_shell() {
 	say "dropping to a shell on the console; exit to retry"
@@ -1314,6 +1362,10 @@ fallback_shell() {
 }
 
 finish() {
+	if [ "$NET_HOLD" -gt 0 ] 2>/dev/null; then
+		say "holding ${NET_HOLD}s before poweroff (net.hold)"
+		sleep "$NET_HOLD"
+	fi
 	say "SUMMARY: docker=$DOCKER_RESULT k3s=$K3S_RESULT disk=$DISK_RESULT"
 	memline "final"
 	marker PAYLOAD_DONE
@@ -1399,6 +1451,7 @@ stage2() {
 	select_tests
 	setup_system
 	setup_network
+	test_ping
 	memline "stage 2 start"
 
 	# Free whichever stack this run will not use before anything starts, the
