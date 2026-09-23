@@ -1125,6 +1125,20 @@ also prints a warning naming the images that are missing, because traefik and
 metrics-server will then sit in ImagePullBackOff (which does not stop the node
 from going Ready or the test pod from running).
 
+With `k3s.disk=1` the test is the same, but K3s's state is not on the tmpfs root.
+Before the server starts, `/init` runs `busybox mke2fs` on `disk.dev`, mounts it
+at `/mnt/payload-disk`, probes overlayfs with its upper dir there (logged, not
+fatal), moves the shipped `agent/` contents (the airgap tars, 38M) onto it, and
+bind-mounts `agent/` and `server/` from it. `data/` stays where it is. Any
+failure in that sequence is `K3S_FAIL`. It logs `df` of the disk and the root
+and a `du` of both directories before K3s starts, at node Ready and at
+`K3S_OK`, which is where the sizing in `REPLICATION.md` comes from: 38M, about
+80M, then 159M, with `agent/` 153M of it.
+
+Rejected on the way: `--data-dir` on the disk, which would need `data/` copied
+out of the initrd as well, and bind-mounting only `agent/containerd`, which
+leaves the datastore on tmpfs.
+
 ## Build
 
 ```bash
@@ -1304,6 +1318,10 @@ Offline, in a riscv64 container built from the same image the initrds come from:
 - The `docker.storage=` override and the `vfs`/`native` fallback path were never
   exercised, because the overlayfs probe passed on every boot.
 - `root.size=` was left at its default on every boot.
+- `k3s.disk=1` was booted only under Xen, with a 512 MiB PV disk whose image is
+  a file on dom0's tmpfs (see `REPLICATION.md`), never on plain `-M virt` and
+  never on a real block device. Its failure path (a missing or unformattable
+  device) was exercised only against a loop device in an x86 container.
 - The zstd archives were never booted.
 - The K3s pre-unpack means the payload runs `k3s` the way the upstream
   `rancher/k3s` image does, not the way the released stub binary does. The

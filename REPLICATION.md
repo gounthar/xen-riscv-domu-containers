@@ -413,6 +413,55 @@ payloads, passes 5/5 with the stub replaced by ARM's one-line definition and ass
 first ping without it (runs 49 and 50). Dom0-to-guest traffic never takes that path, which is
 why the single-guest tests never saw it.
 
+## K3s state on the PV disk (`k3s.disk=1`)
+
+By default everything K3s writes lands on the guest's tmpfs root. With `k3s.disk=1`, `/init`
+formats `disk.dev` (busybox `mke2fs`; the kernel mounts it through its ext4 driver, so the
+log says `ext4`) and bind-mounts two of K3s's directories from it:
+
+- `agent/`: the containerd content store and snapshots, and the kubelet
+- `server/`: the datastore and the certificates
+
+`data/`, the unpacked K3s tree that `K3S_BIN` points into, stays on the root and
+`--data-dir` does not change. The airgap tars ship under `agent/images`, so they are moved
+onto the disk before the bind mount would hide them. A device that cannot be set up is
+`K3S_FAIL`, never a quiet fall back to tmpfs: a `K3S_OK` that ran from RAM would not mean what
+the run asked for.
+
+It needs a bigger disk than the 64 MiB the disk test uses. Measured under Xen (QEMU TCG on
+fedora1, 512 MiB `phy` disk backed by a file on dom0's tmpfs), the disk and the root at three
+points of every run:
+
+| point | disk used | `agent/` | `server/` | guest root used |
+|---|---|---|---|---|
+| before K3s starts | 38M | 38M (the airgap tars) | 4.0K | 290M |
+| node Ready | 80-82M | 75-76M | 5.1-5.9M | 290M |
+| `K3S_OK` | 159M | 153M | 5.9-6.3M | 292M |
+
+The first and last rows are identical to the megabyte in every passing run below; the
+ranges are the spread across them:
+
+| what | runs | result |
+|---|---|---|
+| one domU, `test=all k3s.disk=1` | 52, 53, 54 | 3/3 `SUMMARY: docker=ok k3s=ok disk=ok` |
+| two domUs, server state on disk, agent on tmpfs | 56, 58 | both sides `K3S_OK`, pod ran on `domu2` |
+| the same | 57 | Xen assertion in the server domU as its disk setup began; see "A per-cpu lock assertion under PV disk I/O" below |
+
+Two domUs is therefore 2 of 3, and the third was lost to the hypervisor, not to the payload.
+
+In the single-domU runs the disk test runs first and reformats the same device; `k3s.disk`
+reformats it again afterwards, so the two do not share anything.
+
+**This does not save RAM under Xen.** The disk image is a file on dom0's tmpfs. After the
+guest powered off, that file held 183204, 182876, 183744 and 183676 KiB (runs 53, 54, 56, 58), about 179
+MiB, while the guest's root grew by only 2M. The image is sparse, so that is what the guest
+wrote to it; it is more than the 159M in use at the end, probably because blocks the guest
+freed stay allocated in the file (not checked). The state moved from guest RAM to dom0 RAM. On a
+host with a real disk behind the backend it would move to disk; that has not been run.
+
+Nothing here tests that the state survives a restart: a domU cannot be destroyed or rebooted
+on riscv yet (see below), and every run starts from a freshly formatted disk.
+
 ## Markers
 
 Each on its own line, in this order:
@@ -641,6 +690,26 @@ dom0 prints the same lines the guest does, about four minutes earlier:
 sstc line. **The guest's is the second occurrence.** The initmem size also tells them
 apart. A monitor that greps for a guest milestone will fire on dom0 first.
 
+### A per-cpu lock assertion under PV disk I/O
+
+Two of seven runs that write heavily to the PV disk (runs 57 and 59) stopped here, as the
+guest's grant table grew from 2 to 3 frames:
+
+```
+(XEN) common/grant_table.c:1909:d1v0 Expanding d1 grant table from 2 to 3 frames
+(XEN) Assertion this_cpu_ptr(per_cpudata) != NULL failed at ./include/xen/rwlock.h:369
+```
+
+The CPU is parked rather than panicking, so the guest just stops and dom0 carries on: a run
+that waits for the guest's markers will wait until its own timeout. The call path
+(`addr2line`) is `gnttab_query_size` -> `grant_read_unlock` -> `_percpu_read_unlock`.
+
+In the Xen branch this howto builds (`dev-riscv-support-guest-domains`), riscv's
+`this_cpu_ptr()` adds the CPU number in bytes instead of the CPU's per-cpu offset, so pCPUs
+share bytes of what should be separate slots; upstream `staging` defines it correctly. That
+fits the assertion; it has not been shown to cause it. If you hit it, rerun: it is
+intermittent.
+
 ### `dom0_mem` goes on Xen's command line, not dom0's
 
 Read this one first. It costs nothing to get right and it is invisible when you get it
@@ -683,6 +752,13 @@ The fix:
 PLATFORM_XEN_BOOTARGS="com1=poll sched=null dom0_max_vcpus=1 dom0_mem=1536M"
 DOM0_BOOTARGS="rw root=/dev/ram console=hvc0 keep_bootcon bootmem_debug debug"
 ```
+
+**Then use 1024M, not 1536M, on this branch.** At 1536M or 3072M Xen splits dom0 into
+several banks, and the branch's `place_modules()` puts the initrd straight after the kernel
+without checking it fits the first bank: a 244 MiB dom0 image runs off the end of a 128 MiB
+bank and Xen takes a Load Page Fault while copying it. At 1024M dom0 gets one bank and boots.
+Upstream `staging` already fixed the placement (`f6a20eda`); with that function backported,
+3072M boots (run 59).
 
 **How you will notice, if you notice at all.** With a small dom0 ramdisk, 512 MiB is
 enough and nothing is wrong. Grow the image — say, to carry a larger guest payload —
@@ -1045,6 +1121,10 @@ all is still untested.
   other 5/5 and the two-node K3s test passes; without it, the first ping asserts.
 - **Two-node K3s is 3/3 with both guests confirming, on one host, under TCG.** That is a
   result, not a stability claim, and TCG timing says nothing about hardware timing.
+- **`k3s.disk=1` has run under Xen only, on a disk backed by dom0's tmpfs.** 3/3 on one
+  domU, 2 of 3 with two; the failure was the Xen assertion above, which also stopped one
+  single-domU run on a modified Xen. It moves K3s's state off the guest's root; it has not been shown to
+  save memory anywhere, and never on a real block device.
 - **One vCPU per guest.** Everything here runs `sched=null` with a single vCPU per domain.
 - **No guest state survives a restart.** A domU can be powered off but not destroyed or
   rebooted on riscv (`domain_relinquish_resources()` returns `-ENOSYS`), and the powered-off
