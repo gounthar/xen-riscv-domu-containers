@@ -341,6 +341,17 @@ and harmless.
 | `net.gw=IP` | 10.0.2.2 | gateway for the default route |
 | `disk.dev=PATH` | `/dev/xvda` | block device for the disk test |
 | `disk.timeout=SEC` | | budget for the disk test |
+| `k3s.role=server\|agent` | `server` | `agent` joins an existing server instead of running the test; see "Two domUs, one cluster" |
+| `k3s.server=URL` | | agent only: the server to join, e.g. `https://192.168.128.2:6443` |
+| `k3s.token=TOKEN` | | join token, passed to both roles when set |
+| `k3s.nodename=NAME` | `domu` | node name and the `/etc/hosts` entry for this guest |
+| `k3s.nodes=N` | `1` | server: wait for N Ready nodes before running the pod |
+| `k3s.podnode=NAME` | | server: pin the test pod to this node with a `kubernetes.io/hostname` nodeSelector |
+| `k3s.agenthold=SEC` | `180` | agent: stay up this long after its container ran, so the server can still read the logs |
+| `net.ping=IP` | | ping this address once the network is up, before the tests; reports `PING_OK` or `PING_FAIL` |
+| `net.pingsize=N` | `1000` | payload bytes for that ping. Above netback's header-copy length on purpose, so the frame's page is grant-mapped |
+| `net.pingcount=N` | `5` | how many |
+| `net.hold=SEC` | `0` | stay up this long before powering off, so another guest can reach this one |
 | `progress=SEC` | 30 | interval between progress lines |
 
 Everything is slow under TCG. Raise the timeouts rather than concluding a hang:
@@ -349,6 +360,58 @@ line and the memory left, so slow progress and a real hang look different.
 
 `debug=1` is the one to reach for when something fails and you want to poke around.
 
+
+## Two domUs, one cluster
+
+The same payload runs both halves of a two-node K3s cluster, one node per domU, joined over
+the PV network. Measured on QEMU TCG (fedora1, dom0 plus `xl create`), runs 43-48: the server
+side passed 6/6 and 3/3 of those were confirmed independently from the agent guest.
+
+Server guest:
+
+```
+extra = "console=hvc0 earlycon=sbi test=k3s net.addr=192.168.128.2/24 net.gw=192.168.128.1 \
+k3s.token=SHARED k3s.nodes=2 k3s.podnode=domu2 k3s.cfgtimeout=1800 k3s.restarts=3 \
+k3s.timeout=5400 k3s.podtimeout=2400 progress=60"
+```
+
+Agent guest:
+
+```
+extra = "console=hvc0 earlycon=sbi test=k3s net.addr=192.168.128.3/24 net.gw=192.168.128.1 \
+k3s.role=agent k3s.server=https://192.168.128.2:6443 k3s.token=SHARED k3s.nodename=domu2 \
+k3s.cfgtimeout=3600 k3s.restarts=3 k3s.timeout=5400 k3s.podtimeout=2400 k3s.agenthold=180 \
+progress=60"
+```
+
+Both need at least the usual RAM (1344 MiB each here); the agent is not cheaper, because the
+initrd still unpacks in full. Start the agent first and the server second: the agent retries
+the join for `k3s.cfgtimeout` seconds, so the order is not critical, but the server's console
+is the one worth attaching to.
+
+What each side reports, and why both are worth having:
+
+- The **server** prints `k3s: pod ran on node: domu2` and one line per node, then reads the
+  pod's logs. That read goes from its apiserver to the other guest's kubelet, so it crosses
+  the PV network between two domUs.
+- The **agent** has no admin kubeconfig. It reports only what it can see locally: the kubelet
+  kubeconfig (which the server hands out only once the token checks out), then the test
+  container in its own containerd, through `crictl`, with its output. It then stays up for
+  `k3s.agenthold` seconds so the server's log read still works.
+
+Only the agent's `crictl` line proves the container ran *there* without trusting the server's
+view of it. Note that `crictl` must be called through `bin/crictl`: `bin/k3s` picks its tool
+from `argv[0]`, so `k3s crictl ps` runs crictl with `crictl` as its first argument and fails
+with `No help topic for 'crictl'`.
+
+**On riscv Xen this needs a hypervisor change that is not upstream.** The first frame large
+enough to be grant-mapped between two guests reaches `page_get_owner_and_reference()`, an
+`assert_failed()` stub in `xen/arch/riscv/mm.c`, and the hypervisor stops there. `net.ping`
+exists to test exactly that without K3s: two guests, one pinging the other with 1000-byte
+payloads, passes 5/5 with the stub replaced by ARM's one-line definition and asserts at the
+first ping without it (runs 49 and 50). Dom0-to-guest traffic never takes that path, which is
+why the single-guest tests never saw it.
+
 ## Markers
 
 Each on its own line, in this order:
@@ -356,12 +419,17 @@ Each on its own line, in this order:
 ```
 PAYLOAD_START
 PAYLOAD_FAIL: initrd truncated (<detail>)     (and then nothing else)
+PING_OK: <ping summary>  or  PING_FAIL: <reason>   (only with net.ping=)
 DISK_OK          or  DISK_FAIL: <reason>      (skipped if there is no block device)
 DOCKER_OK        or  DOCKER_FAIL: <reason>
 K3S_OK           or  K3S_FAIL: <reason>
 SUMMARY: docker=... k3s=... disk=...
 PAYLOAD_DONE
 ```
+
+With `k3s.role=agent` the K3s field carries the node name, `k3s=ok (agent domu2)`, and
+`K3S_OK` there means the agent joined, saw the test container in its own containerd and
+read the expected output out of it.
 
 `SUMMARY` has three fields. Anything matching the older two-field string will not
 match. The disk test runs first in `test=all`: it is the cheapest, it is independent
@@ -969,6 +1037,17 @@ all is still untested.
 - **The domU that boots needs an experimental guest-kernel change** for the event-channel
   interrupt (above). No domU has booted on an unmodified guest kernel past that point.
 - **Nothing on riscv64 hardware.** All boots were TCG on x86_64.
+- **Two domUs need a third experimental change, in Xen.** A frame large enough to be
+  grant-mapped between two guests reaches `page_get_owner_and_reference()`, an
+  `assert_failed()` stub in `xen/arch/riscv/mm.c`, and the hypervisor stops. See "Two domUs,
+  one cluster". With ARM's one-line definition of that wrapper in place, two guests ping each
+  other 5/5 and the two-node K3s test passes; without it, the first ping asserts.
+- **Two-node K3s is 3/3 with both guests confirming, on one host, under TCG.** That is a
+  result, not a stability claim, and TCG timing says nothing about hardware timing.
+- **One vCPU per guest.** Everything here runs `sched=null` with a single vCPU per domain.
+- **No guest state survives a restart.** A domU can be powered off but not destroyed or
+  rebooted on riscv (`domain_relinquish_resources()` returns `-ENOSYS`), and the powered-off
+  domain stays in `xl list`. Nothing here has tested persistence across a guest restart.
 - **netfront and blkfront work only with two experimental grant-table changes**, one in
   Xen and one in the guest kernel (see "PV network and PV disk need two grant-table
   changes"). Without them, neither frontend can share its ring. See

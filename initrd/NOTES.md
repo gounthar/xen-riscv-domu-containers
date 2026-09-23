@@ -857,6 +857,17 @@ so it is safe to keep `console=`, `earlycon=` and friends.
 | `root.size=SIZE` | `90%` | size of the tmpfs the real root lives in |
 | `net.addr=CIDR` | `10.0.2.15/24` | address put on whichever interface was chosen |
 | `net.gw=IP` | `10.0.2.2` | gateway for the default route |
+| `k3s.role=server\|agent` | `server` | `agent` joins an existing server instead of running the test; see "Two domUs, one cluster" |
+| `k3s.server=URL` | | agent only: the server to join, e.g. `https://192.168.128.2:6443` |
+| `k3s.token=TOKEN` | | join token, passed to both roles when set |
+| `k3s.nodename=NAME` | `domu` | node name and the `/etc/hosts` entry for this guest |
+| `k3s.nodes=N` | `1` | server: wait for N Ready nodes before running the pod |
+| `k3s.podnode=NAME` | | server: pin the test pod to this node with a `kubernetes.io/hostname` nodeSelector |
+| `k3s.agenthold=SEC` | `180` | agent: stay up this long after its container ran, so the server can still read the logs |
+| `net.ping=IP` | | ping this address once the network is up, before the tests; reports `PING_OK` or `PING_FAIL` |
+| `net.pingsize=N` | `1000` | payload bytes for that ping. Above netback's header-copy length on purpose, so the frame's page is grant-mapped |
+| `net.pingcount=N` | `5` | how many |
+| `net.hold=SEC` | `0` | stay up this long before powering off, so another guest can reach this one |
 | `progress=SEC` | `30` | interval between progress lines while waiting |
 
 `test=all` on a single-stack image is reduced to the test that image can run,
