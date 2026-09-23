@@ -446,8 +446,10 @@ ranges are the spread across them:
 | one domU, `test=all k3s.disk=1` | 52, 53, 54 | 3/3 `SUMMARY: docker=ok k3s=ok disk=ok` |
 | two domUs, server state on disk, agent on tmpfs | 56, 58 | both sides `K3S_OK`, pod ran on `domu2` |
 | the same | 57 | Xen assertion in the server domU as its disk setup began; see "A per-cpu lock assertion under PV disk I/O" below |
+| one domU, then two domUs, on a Xen with the per-cpu line corrected | 60-62, 63-65 | 3/3 and 3/3, no assertion; see the same section |
 
-Two domUs is therefore 2 of 3, and the third was lost to the hypervisor, not to the payload.
+Two domUs is therefore 2 of 3 on the Xen branch as it stands, and the third was lost to the
+hypervisor, not to the payload.
 
 In the single-domU runs the disk test runs first and reformats the same device; `k3s.disk`
 reformats it again afterwards, so the two do not share anything.
@@ -710,6 +712,20 @@ share bytes of what should be separate slots; upstream `staging` defines it corr
 fits the assertion; it has not been shown to cause it. If you hit it, rerun: it is
 intermittent.
 
+With the macro changed to what `staging` does, in this tree's names:
+
+```c
+#define this_cpu_ptr(var) \
+    (*RELOC_HIDE(var, __per_cpu_offset[get_processor_id()]))
+```
+
+seven more disk-heavy runs (60-66: three with one domU, three with two, one at
+`dom0_mem=3072M` with the placement backport as well) finished with no assertion. Do not read
+that as a fix. Two in seven asserted before, and at that rate seven clean runs happen about
+one time in ten by chance alone (Fisher p = 0.46). The reason to make the change anyway is
+that the source is plainly wrong, not the run count. This is upstream's code, not mine: the
+branch this howto builds lags `staging` here.
+
 ### `dom0_mem` goes on Xen's command line, not dom0's
 
 Read this one first. It costs nothing to get right and it is invisible when you get it
@@ -758,7 +774,8 @@ several banks, and the branch's `place_modules()` puts the initrd straight after
 without checking it fits the first bank: a 244 MiB dom0 image runs off the end of a 128 MiB
 bank and Xen takes a Load Page Fault while copying it. At 1024M dom0 gets one bank and boots.
 Upstream `staging` already fixed the placement (`f6a20eda`); with that function backported,
-3072M boots (run 59).
+3072M boots (run 59), and with the per-cpu change below as well it finishes the k3s.disk test
+(run 66).
 
 **How you will notice, if you notice at all.** With a small dom0 ramdisk, 512 MiB is
 enough and nothing is wrong. Grow the image — say, to carry a larger guest payload —
@@ -1123,7 +1140,8 @@ all is still untested.
   result, not a stability claim, and TCG timing says nothing about hardware timing.
 - **`k3s.disk=1` has run under Xen only, on a disk backed by dom0's tmpfs.** 3/3 on one
   domU, 2 of 3 with two; the failure was the Xen assertion above, which also stopped one
-  single-domU run on a modified Xen. It moves K3s's state off the guest's root; it has not been shown to
+  single-domU run on a modified Xen. With the per-cpu line corrected, 3/3 and 3/3 more, which
+  is not enough runs to say the assertion is gone. It moves K3s's state off the guest's root; it has not been shown to
   save memory anywhere, and never on a real block device.
 - **One vCPU per guest.** Everything here runs `sched=null` with a single vCPU per domain.
 - **No guest state survives a restart.** A domU can be powered off but not destroyed or
