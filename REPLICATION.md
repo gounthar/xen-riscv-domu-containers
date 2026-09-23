@@ -327,6 +327,7 @@ and harmless.
 | option | default | meaning |
 |---|---|---|
 | `test=all\|docker\|k3s\|disk` | `all` | which tests to run |
+| `test=identity` | | run no test: print what the guest exposes for node identity and its disk names, then power off; see "Node identity and disk name" |
 | `debug=1` | off | drop to a shell instead of powering off, including after a failure |
 | `keep=1` | off | do not delete the unused stack or the imported image tars |
 | `k3s.full=1` | off | do not disable traefik, servicelb and metrics-server |
@@ -341,6 +342,18 @@ and harmless.
 | `net.gw=IP` | 10.0.2.2 | gateway for the default route |
 | `disk.dev=PATH` | `/dev/xvda` | block device for the disk test |
 | `disk.timeout=SEC` | | budget for the disk test |
+| `k3s.disk=1` | off | K3s `agent/` and `server/` on `disk.dev` (reformatted) instead of the tmpfs root; needs more than the 64 MiB disk: run 52 used 159M of a 512 MiB one at K3S_OK |
+| `k3s.role=server\|agent` | `server` | `agent` joins an existing server instead of running the test; see "Two domUs, one cluster" |
+| `k3s.server=URL` | | agent only: the server to join, e.g. `https://192.168.128.2:6443` |
+| `k3s.token=TOKEN` | | join token, passed to both roles when set |
+| `k3s.nodename=NAME` | `domu` | node name and the `/etc/hosts` entry for this guest |
+| `k3s.nodes=N` | `1` | server: wait for N Ready nodes before running the pod |
+| `k3s.podnode=NAME` | | server: pin the test pod to this node with a `kubernetes.io/hostname` nodeSelector |
+| `k3s.agenthold=SEC` | `180` | agent: stay up this long after its container ran, so the server can still read the logs |
+| `net.ping=IP` | | ping this address once the network is up, before the tests; reports `PING_OK` or `PING_FAIL` |
+| `net.pingsize=N` | `1000` | payload bytes for that ping. Above netback's header-copy length on purpose, so the frame's page is grant-mapped |
+| `net.pingcount=N` | `5` | how many |
+| `net.hold=SEC` | `0` | stay up this long before powering off, so another guest can reach this one |
 | `progress=SEC` | 30 | interval between progress lines |
 
 Everything is slow under TCG. Raise the timeouts rather than concluding a hang:
@@ -349,6 +362,150 @@ line and the memory left, so slow progress and a real hang look different.
 
 `debug=1` is the one to reach for when something fails and you want to poke around.
 
+
+## Two domUs, one cluster
+
+The same payload runs both halves of a two-node K3s cluster, one node per domU, joined over
+the PV network. Measured on QEMU TCG (fedora1, dom0 plus `xl create`), runs 43-48: the server
+side passed 6/6 and 3/3 of those were confirmed independently from the agent guest.
+
+Server guest:
+
+```
+extra = "console=hvc0 earlycon=sbi test=k3s net.addr=192.168.128.2/24 net.gw=192.168.128.1 \
+k3s.token=SHARED k3s.nodes=2 k3s.podnode=domu2 k3s.cfgtimeout=1800 k3s.restarts=3 \
+k3s.timeout=5400 k3s.podtimeout=2400 progress=60"
+```
+
+Agent guest:
+
+```
+extra = "console=hvc0 earlycon=sbi test=k3s net.addr=192.168.128.3/24 net.gw=192.168.128.1 \
+k3s.role=agent k3s.server=https://192.168.128.2:6443 k3s.token=SHARED k3s.nodename=domu2 \
+k3s.cfgtimeout=3600 k3s.restarts=3 k3s.timeout=5400 k3s.podtimeout=2400 k3s.agenthold=180 \
+progress=60"
+```
+
+Both need at least the usual RAM (1344 MiB each here); the agent is not cheaper, because the
+initrd still unpacks in full. Start the agent first and the server second: the agent retries
+the join for `k3s.cfgtimeout` seconds, so the order is not critical, but the server's console
+is the one worth attaching to.
+
+What each side reports, and why both are worth having:
+
+- The **server** prints `k3s: pod ran on node: domu2` and one line per node, then reads the
+  pod's logs. That read goes from its apiserver to the other guest's kubelet, so it crosses
+  the PV network between two domUs.
+- The **agent** has no admin kubeconfig. It reports only what it can see locally: the kubelet
+  kubeconfig (which the server hands out only once the token checks out), then the test
+  container in its own containerd, through `crictl`, with its output. It then stays up for
+  `k3s.agenthold` seconds so the server's log read still works.
+
+Only the agent's `crictl` line proves the container ran *there* without trusting the server's
+view of it. Note that `crictl` must be called through `bin/crictl`: `bin/k3s` picks its tool
+from `argv[0]`, so `k3s crictl ps` runs crictl with `crictl` as its first argument and fails
+with `No help topic for 'crictl'`.
+
+**On riscv Xen this needs a hypervisor change that is not upstream.** The first frame large
+enough to be grant-mapped between two guests reaches `page_get_owner_and_reference()`, an
+`assert_failed()` stub in `xen/arch/riscv/mm.c`, and the hypervisor stops there. `net.ping`
+exists to test exactly that without K3s: two guests, one pinging the other with 1000-byte
+payloads, passes 5/5 with the stub replaced by ARM's one-line definition and asserts at the
+first ping without it (runs 49 and 50). Dom0-to-guest traffic never takes that path, which is
+why the single-guest tests never saw it.
+
+## K3s state on the PV disk (`k3s.disk=1`)
+
+By default everything K3s writes lands on the guest's tmpfs root. With `k3s.disk=1`, `/init`
+formats `disk.dev` (busybox `mke2fs`; the kernel mounts it through its ext4 driver, so the
+log says `ext4`) and bind-mounts two of K3s's directories from it:
+
+- `agent/`: the containerd content store and snapshots, and the kubelet
+- `server/`: the datastore and the certificates
+
+`data/`, the unpacked K3s tree that `K3S_BIN` points into, stays on the root and
+`--data-dir` does not change. The airgap tars ship under `agent/images`, so they are moved
+onto the disk before the bind mount would hide them. A device that cannot be set up is
+`K3S_FAIL`, never a quiet fall back to tmpfs: a `K3S_OK` that ran from RAM would not mean what
+the run asked for.
+
+It needs a bigger disk than the 64 MiB the disk test uses. Measured under Xen (QEMU TCG on
+fedora1, 512 MiB `phy` disk backed by a file on dom0's tmpfs), the disk and the root at three
+points of every run:
+
+| point | disk used | `agent/` | `server/` | guest root used |
+|---|---|---|---|---|
+| before K3s starts | 38M | 38M (the airgap tars) | 4.0K | 290M |
+| node Ready | 80-82M | 75-76M | 5.1-5.9M | 290M |
+| `K3S_OK` | 159M | 153M | 5.9-6.3M | 292M |
+
+The first and last rows are identical to the megabyte in every passing run below; the
+ranges are the spread across them:
+
+| what | runs | result |
+|---|---|---|
+| one domU, `test=all k3s.disk=1` | 52, 53, 54 | 3/3 `SUMMARY: docker=ok k3s=ok disk=ok` |
+| two domUs, server state on disk, agent on tmpfs | 56, 58 | both sides `K3S_OK`, pod ran on `domu2` |
+| the same | 57 | Xen assertion in the server domU as its disk setup began; see "A per-cpu lock assertion under PV disk I/O" below |
+| one domU, then two domUs, on a Xen with the per-cpu line corrected | 60-62, 63-65 | 3/3 and 3/3, no assertion; see the same section |
+
+Two domUs is therefore 2 of 3 on the Xen branch as it stands, and the third was lost to the
+hypervisor, not to the payload.
+
+In the single-domU runs the disk test runs first and reformats the same device; `k3s.disk`
+reformats it again afterwards, so the two do not share anything.
+
+**This does not save RAM under Xen.** The disk image is a file on dom0's tmpfs. After the
+guest powered off, that file held 183204, 182876, 183744 and 183676 KiB (runs 53, 54, 56, 58), about 179
+MiB, while the guest's root grew by only 2M. The image is sparse, so that is what the guest
+wrote to it; it is more than the 159M in use at the end, probably because blocks the guest
+freed stay allocated in the file (not checked). The state moved from guest RAM to dom0 RAM. On a
+host with a real disk behind the backend it would move to disk; that has not been run.
+
+Nothing here tests that the state survives a restart: a domU cannot be destroyed or rebooted
+on riscv yet (see below), and every run starts from a freshly formatted disk.
+
+## Node identity and disk name (`test=identity`)
+
+Kubernetes tooling that maps a node to its VM reads two things from inside the guest: kubelet's
+`SystemUUID`, which comes from the DMI `product_uuid` when there is one, and the block device
+name a CSI driver mounts. `test=identity` prints what the guest has of both and runs no test:
+`/sys/class/dmi/id`, the device-tree root, `model`, `compatible`, `vm,uuid`, `system-id` and the
+`hypervisor` node, any device-tree name containing `uuid`, `/sys/hypervisor`, `/etc/machine-id`,
+the xenbus devices, and the block devices, each under a `--- ID: <name> ---` header between
+`IDENTITY_START` and `IDENTITY_END`. It waits up to 60 s for a `xvd`, `vd` or `sd` device first,
+because blkfront attaches after `/init` has started. It runs before `setup_system`, so
+`/etc/machine-id` is shown as the image shipped it, before `/init` generates one.
+
+It is on branch `feat/identity-probe` and needs a payload built from it. In a `domu.cfg` whose
+`extra` has `test=all`, it is one edit in dom0 before `xl create`:
+
+```
+sed -i 's/test=all/test=identity/' /domu/domu.cfg
+```
+
+Run 67 (fedora1, QEMU TCG, dom0 plus `xl create`, one vCPU, one `phy` disk with `vdev=xvda`):
+
+| read in the guest | value |
+|---|---|
+| kernel boot | `DMI not present or invalid.` |
+| `/sys/class/dmi/id/` | does not exist |
+| `/proc/device-tree/vm,uuid`, `system-id` | absent; no node named like a uuid |
+| `/proc/device-tree/model`, `compatible` | `XENVM-4.18`, `xen,xenvm-4.18 xen,xenvm` |
+| `/sys/hypervisor/type`, `uuid` | `xen`, `c7c38be3-8988-4b8d-b3ce-3459bca9c9b2`, which is the domain UUID `xl list -v` shows in dom0 |
+| `/etc/machine-id` | absent (the busybox image ships none) |
+| xenbus devices | `vbd-51712`, `vif-0` |
+| block device | `/dev/xvda` (202,0), from blkfront: the name `vdev=` asked for |
+
+So a riscv64 domU has **no SMBIOS UUID**, and its Xen UUID is available at
+`/sys/hypervisor/uuid`. On an x86 HVM guest created by XAPI the SMBIOS `product_uuid`, the same
+`/sys/hypervisor/uuid` and the VM UUID are all equal, and XAPI's `VBD.device` equals the guest's
+disk name (measured separately, one BIOS HVM guest on XCP-ng 8.3). What a kubelet would report
+as `SystemUUID` on the riscv guest was not tested. cadvisor's source falls back to
+`/etc/machine-id` when there is no DMI and no `vm,uuid` (read, not run), and the other test
+modes generate one, so it would be a value that is not the VM's UUID. Nothing here
+was created by XAPI, which does not exist for riscv.
+
 ## Markers
 
 Each on its own line, in this order:
@@ -356,12 +513,18 @@ Each on its own line, in this order:
 ```
 PAYLOAD_START
 PAYLOAD_FAIL: initrd truncated (<detail>)     (and then nothing else)
+IDENTITY_START ... IDENTITY_END                (test=identity only, and then nothing else)
+PING_OK: <ping summary>  or  PING_FAIL: <reason>   (only with net.ping=)
 DISK_OK          or  DISK_FAIL: <reason>      (skipped if there is no block device)
 DOCKER_OK        or  DOCKER_FAIL: <reason>
 K3S_OK           or  K3S_FAIL: <reason>
 SUMMARY: docker=... k3s=... disk=...
 PAYLOAD_DONE
 ```
+
+With `k3s.role=agent` the K3s field carries the node name, `k3s=ok (agent domu2)`, and
+`K3S_OK` there means the agent joined, saw the test container in its own containerd and
+read the expected output out of it.
 
 `SUMMARY` has three fields. Anything matching the older two-field string will not
 match. The disk test runs first in `test=all`: it is the cheapest, it is independent
@@ -572,6 +735,40 @@ dom0 prints the same lines the guest does, about four minutes earlier:
 sstc line. **The guest's is the second occurrence.** The initmem size also tells them
 apart. A monitor that greps for a guest milestone will fire on dom0 first.
 
+### A per-cpu lock assertion under PV disk I/O
+
+Two of seven runs that write heavily to the PV disk (runs 57 and 59) stopped here, as the
+guest's grant table grew from 2 to 3 frames:
+
+```
+(XEN) common/grant_table.c:1909:d1v0 Expanding d1 grant table from 2 to 3 frames
+(XEN) Assertion this_cpu_ptr(per_cpudata) != NULL failed at ./include/xen/rwlock.h:369
+```
+
+The CPU is parked rather than panicking, so the guest just stops and dom0 carries on: a run
+that waits for the guest's markers will wait until its own timeout. The call path
+(`addr2line`) is `gnttab_query_size` -> `grant_read_unlock` -> `_percpu_read_unlock`.
+
+In the Xen branch this howto builds (`dev-riscv-support-guest-domains`), riscv's
+`this_cpu_ptr()` adds the CPU number in bytes instead of the CPU's per-cpu offset, so pCPUs
+share bytes of what should be separate slots; upstream `staging` defines it correctly. That
+fits the assertion; it has not been shown to cause it. If you hit it, rerun: it is
+intermittent.
+
+With the macro changed to what `staging` does, in this tree's names:
+
+```c
+#define this_cpu_ptr(var) \
+    (*RELOC_HIDE(var, __per_cpu_offset[get_processor_id()]))
+```
+
+seven more disk-heavy runs (60-66: three with one domU, three with two, one at
+`dom0_mem=3072M` with the placement backport as well) finished with no assertion. Do not read
+that as a fix. Two in seven asserted before, and at that rate seven clean runs happen about
+one time in ten by chance alone (Fisher p = 0.46). The reason to make the change anyway is
+that the source is plainly wrong, not the run count. This is upstream's code, not mine: the
+branch this howto builds lags `staging` here.
+
 ### `dom0_mem` goes on Xen's command line, not dom0's
 
 Read this one first. It costs nothing to get right and it is invisible when you get it
@@ -614,6 +811,14 @@ The fix:
 PLATFORM_XEN_BOOTARGS="com1=poll sched=null dom0_max_vcpus=1 dom0_mem=1536M"
 DOM0_BOOTARGS="rw root=/dev/ram console=hvc0 keep_bootcon bootmem_debug debug"
 ```
+
+**Then use 1024M, not 1536M, on this branch.** At 1536M or 3072M Xen splits dom0 into
+several banks, and the branch's `place_modules()` puts the initrd straight after the kernel
+without checking it fits the first bank: a 244 MiB dom0 image runs off the end of a 128 MiB
+bank and Xen takes a Load Page Fault while copying it. At 1024M dom0 gets one bank and boots.
+Upstream `staging` already fixed the placement (`f6a20eda`); with that function backported,
+3072M boots (run 59), and with the per-cpu change below as well it finishes the k3s.disk test
+(run 66).
 
 **How you will notice, if you notice at all.** With a small dom0 ramdisk, 512 MiB is
 enough and nothing is wrong. Grow the image — say, to carry a larger guest payload —
@@ -969,6 +1174,24 @@ all is still untested.
 - **The domU that boots needs an experimental guest-kernel change** for the event-channel
   interrupt (above). No domU has booted on an unmodified guest kernel past that point.
 - **Nothing on riscv64 hardware.** All boots were TCG on x86_64.
+- **`test=identity` has run once**, on an `xl`-created domU with one cold-plugged disk. No
+  hot-plug, no second disk, no kubelet, and no XAPI-created guest.
+- **Two domUs need a third experimental change, in Xen.** A frame large enough to be
+  grant-mapped between two guests reaches `page_get_owner_and_reference()`, an
+  `assert_failed()` stub in `xen/arch/riscv/mm.c`, and the hypervisor stops. See "Two domUs,
+  one cluster". With ARM's one-line definition of that wrapper in place, two guests ping each
+  other 5/5 and the two-node K3s test passes; without it, the first ping asserts.
+- **Two-node K3s is 3/3 with both guests confirming, on one host, under TCG.** That is a
+  result, not a stability claim, and TCG timing says nothing about hardware timing.
+- **`k3s.disk=1` has run under Xen only, on a disk backed by dom0's tmpfs.** 3/3 on one
+  domU, 2 of 3 with two; the failure was the Xen assertion above, which also stopped one
+  single-domU run on a modified Xen. With the per-cpu line corrected, 3/3 and 3/3 more, which
+  is not enough runs to say the assertion is gone. It moves K3s's state off the guest's root; it has not been shown to
+  save memory anywhere, and never on a real block device.
+- **One vCPU per guest.** Everything here runs `sched=null` with a single vCPU per domain.
+- **No guest state survives a restart.** A domU can be powered off but not destroyed or
+  rebooted on riscv (`domain_relinquish_resources()` returns `-ENOSYS`), and the powered-off
+  domain stays in `xl list`. Nothing here has tested persistence across a guest restart.
 - **netfront and blkfront work only with two experimental grant-table changes**, one in
   Xen and one in the guest kernel (see "PV network and PV disk need two grant-table
   changes"). Without them, neither frontend can share its ring. See

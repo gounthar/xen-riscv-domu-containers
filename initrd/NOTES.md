@@ -854,9 +854,21 @@ so it is safe to keep `console=`, `earlycon=` and friends.
 | `docker.storage=NAME` | probe | force a storage driver instead of probing overlayfs |
 | `disk.dev=PATH` | `/dev/xvda` | block device for the disk test; absent means the test is skipped |
 | `disk.timeout=SEC` | `300` | budget for each individual disk operation |
+| `k3s.disk=1` | off | reformat `disk.dev` and bind-mount K3s's `agent/` and `server/` from it, moving the shipped airgap tars there first; `data/` stays on the root. A device that cannot be set up is `K3S_FAIL`, never a silent tmpfs fallback. Under Xen the disk image sits on a dom0 tmpfs, so this moves RAM from the guest to dom0 rather than saving any |
 | `root.size=SIZE` | `90%` | size of the tmpfs the real root lives in |
 | `net.addr=CIDR` | `10.0.2.15/24` | address put on whichever interface was chosen |
 | `net.gw=IP` | `10.0.2.2` | gateway for the default route |
+| `k3s.role=server\|agent` | `server` | `agent` joins an existing server instead of running the test; see "Two domUs, one cluster" |
+| `k3s.server=URL` | | agent only: the server to join, e.g. `https://192.168.128.2:6443` |
+| `k3s.token=TOKEN` | | join token, passed to both roles when set |
+| `k3s.nodename=NAME` | `domu` | node name and the `/etc/hosts` entry for this guest |
+| `k3s.nodes=N` | `1` | server: wait for N Ready nodes before running the pod |
+| `k3s.podnode=NAME` | | server: pin the test pod to this node with a `kubernetes.io/hostname` nodeSelector |
+| `k3s.agenthold=SEC` | `180` | agent: stay up this long after its container ran, so the server can still read the logs |
+| `net.ping=IP` | | ping this address once the network is up, before the tests; reports `PING_OK` or `PING_FAIL` |
+| `net.pingsize=N` | `1000` | payload bytes for that ping. Above netback's header-copy length on purpose, so the frame's page is grant-mapped |
+| `net.pingcount=N` | `5` | how many |
+| `net.hold=SEC` | `0` | stay up this long before powering off, so another guest can reach this one |
 | `progress=SEC` | `30` | interval between progress lines while waiting |
 
 `test=all` on a single-stack image is reduced to the test that image can run,
@@ -1113,6 +1125,20 @@ also prints a warning naming the images that are missing, because traefik and
 metrics-server will then sit in ImagePullBackOff (which does not stop the node
 from going Ready or the test pod from running).
 
+With `k3s.disk=1` the test is the same, but K3s's state is not on the tmpfs root.
+Before the server starts, `/init` runs `busybox mke2fs` on `disk.dev`, mounts it
+at `/mnt/payload-disk`, probes overlayfs with its upper dir there (logged, not
+fatal), moves the shipped `agent/` contents (the airgap tars, 38M) onto it, and
+bind-mounts `agent/` and `server/` from it. `data/` stays where it is. Any
+failure in that sequence is `K3S_FAIL`. It logs `df` of the disk and the root
+and a `du` of both directories before K3s starts, at node Ready and at
+`K3S_OK`, which is where the sizing in `REPLICATION.md` comes from: 38M, about
+80M, then 159M, with `agent/` 153M of it.
+
+Rejected on the way: `--data-dir` on the disk, which would need `data/` copied
+out of the initrd as well, and bind-mounting only `agent/containerd`, which
+leaves the datastore on tmpfs.
+
 ## Build
 
 ```bash
@@ -1292,6 +1318,10 @@ Offline, in a riscv64 container built from the same image the initrds come from:
 - The `docker.storage=` override and the `vfs`/`native` fallback path were never
   exercised, because the overlayfs probe passed on every boot.
 - `root.size=` was left at its default on every boot.
+- `k3s.disk=1` was booted only under Xen, with a 512 MiB PV disk whose image is
+  a file on dom0's tmpfs (see `REPLICATION.md`), never on plain `-M virt` and
+  never on a real block device. Its failure path (a missing or unformattable
+  device) was exercised only against a loop device in an x86 container.
 - The zstd archives were never booted.
 - The K3s pre-unpack means the payload runs `k3s` the way the upstream
   `rancher/k3s` image does, not the way the released stub binary does. The

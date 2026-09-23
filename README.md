@@ -21,6 +21,11 @@
 >   grant-table changes. Nothing on hardware. See `REPLICATION.md`,
 >   "Notes for the dom0 and domU path".
 >
+> - It does not know `test=identity` (added 2026-09-23 as a row in the table
+>   below), which probes node identity and disk names instead of running a
+>   test. On a riscv64 Xen domU it found no DMI table and the domain UUID at
+>   `/sys/hypervisor/uuid` (run 67, TCG).
+>
 > Kept rather than deleted because the prose around those numbers is still
 > accurate and `REPLICATION.md` links into it.
 
@@ -117,6 +122,7 @@ on the kernel command line.
 | Option | Default | What it does |
 | --- | --- | --- |
 | `test=all\|docker\|k3s` | `all` | Which tests to run. `all` runs Docker first, then prunes the Docker stack and runs K3s. |
+| `test=identity` | | Run no test. Print DMI, the device tree, `/sys/hypervisor`, `/etc/machine-id` and the block device names between `IDENTITY_START` and `IDENTITY_END`, then power off. Branch `feat/identity-probe`; see `REPLICATION.md`, "Node identity and disk name". |
 | `debug=1` | off | Do not power off at the end; drop to a login shell on the console. Also implies `keep=1`. |
 | `keep=1` | off | Do not delete the unused stack between tests. Costs RAM, useful when poking around afterwards. |
 | `k3s.full=1` | off | Do not pass `--disable traefik,servicelb,metrics-server` to the K3s server. Only meaningful with `initrd-full.cpio.gz`, which carries those images; `/init` warns if they are missing. |
@@ -127,6 +133,17 @@ on the kernel command line.
 | `root.size=SIZE` | `90%` | Size of the tmpfs that becomes the real root. Accepts anything `mount -o size=` accepts. |
 | `net.addr=CIDR` | `10.0.2.15/24` | Address put on `dummy0`. |
 | `net.gw=IP` | `10.0.2.2` | Gateway for the default route. |
+| `k3s.role=server\|agent` | `server` | `agent` joins an existing server instead of running the test; see "Two domUs, one cluster" |
+| `k3s.server=URL` | | agent only: the server to join, e.g. `https://192.168.128.2:6443` |
+| `k3s.token=TOKEN` | | join token, passed to both roles when set |
+| `k3s.nodename=NAME` | `domu` | node name and the `/etc/hosts` entry for this guest |
+| `k3s.nodes=N` | `1` | server: wait for N Ready nodes before running the pod |
+| `k3s.podnode=NAME` | | server: pin the test pod to this node with a `kubernetes.io/hostname` nodeSelector |
+| `k3s.agenthold=SEC` | `180` | agent: stay up this long after its container ran, so the server can still read the logs |
+| `net.ping=IP` | | ping this address once the network is up, before the tests; reports `PING_OK` or `PING_FAIL` |
+| `net.pingsize=N` | `1000` | payload bytes for that ping. Above netback's header-copy length on purpose, so the frame's page is grant-mapped |
+| `net.pingcount=N` | `5` | how many |
+| `net.hold=SEC` | `0` | stay up this long before powering off, so another guest can reach this one |
 | `progress=SECONDS` | `30` | How often to print a progress line while waiting. |
 | `loglevel=N` or `quiet` | not set | If either is present, `/init` leaves the kernel log level alone. Otherwise it runs `dmesg -n 4` so kernel noise does not drown the markers. This one is not in `/init`'s own header comment, only in the code. |
 
