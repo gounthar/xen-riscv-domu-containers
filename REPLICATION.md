@@ -341,7 +341,7 @@ and harmless.
 | `net.gw=IP` | 10.0.2.2 | gateway for the default route |
 | `disk.dev=PATH` | `/dev/xvda` | block device for the disk test |
 | `disk.timeout=SEC` | | budget for the disk test |
-| `k3s.disk=1` | off | K3s `agent/` and `server/` on `disk.dev` (reformatted) instead of the tmpfs root; needs a disk of 1.5-2 GiB, not the 64 MiB one |
+| `k3s.disk=1` | off | K3s `agent/` and `server/` on `disk.dev` (reformatted) instead of the tmpfs root; needs more than the 64 MiB disk: run 52 used 159M of a 512 MiB one at K3S_OK |
 | `k3s.role=server\|agent` | `server` | `agent` joins an existing server instead of running the test; see "Two domUs, one cluster" |
 | `k3s.server=URL` | | agent only: the server to join, e.g. `https://192.168.128.2:6443` |
 | `k3s.token=TOKEN` | | join token, passed to both roles when set |
