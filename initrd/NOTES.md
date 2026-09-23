@@ -854,6 +854,7 @@ so it is safe to keep `console=`, `earlycon=` and friends.
 | `docker.storage=NAME` | probe | force a storage driver instead of probing overlayfs |
 | `disk.dev=PATH` | `/dev/xvda` | block device for the disk test; absent means the test is skipped |
 | `disk.timeout=SEC` | `300` | budget for each individual disk operation |
+| `k3s.disk=1` | off | reformat `disk.dev` and bind-mount K3s's `agent/` and `server/` from it, moving the shipped airgap tars there first; `data/` stays on the root. A device that cannot be set up is `K3S_FAIL`, never a silent tmpfs fallback. Under Xen the disk image sits on a dom0 tmpfs, so this moves RAM from the guest to dom0 rather than saving any |
 | `root.size=SIZE` | `90%` | size of the tmpfs the real root lives in |
 | `net.addr=CIDR` | `10.0.2.15/24` | address put on whichever interface was chosen |
 | `net.gw=IP` | `10.0.2.2` | gateway for the default route |

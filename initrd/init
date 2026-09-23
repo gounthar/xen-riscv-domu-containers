@@ -36,6 +36,10 @@
 #   k3s.podnode=NAME      server: pin the test pod to this node
 #   k3s.agenthold=SEC     agent: stay up this long after its container ran,
 #                         so the server can fetch the logs (default 180)
+#   k3s.disk=1            put K3s state (agent/ and server/: containerd, the
+#                         imported images, the datastore) on disk.dev instead
+#                         of the tmpfs root. The device is reformatted. If it
+#                         cannot be set up, K3S_FAIL: no silent tmpfs fallback
 #   docker.timeout=SEC    budget for the Docker test (default 600)
 #   docker.storage=NAME   force a storage driver instead of probing
 #   disk.dev=PATH         block device for the disk test (default /dev/xvda)
@@ -77,6 +81,7 @@ K3S_NODENAME=domu
 K3S_NODES=1
 K3S_PODNODE=""
 K3S_AGENTHOLD=180
+K3S_DISK=0
 DOCKER_TIMEOUT=600
 DOCKER_STORAGE=auto
 DISK_DEV=/dev/xvda
@@ -306,6 +311,7 @@ parse_cmdline() {
 		k3s.nodes=*) K3S_NODES=${w#k3s.nodes=} ;;
 		k3s.podnode=*) K3S_PODNODE=${w#k3s.podnode=} ;;
 		k3s.agenthold=*) K3S_AGENTHOLD=${w#k3s.agenthold=} ;;
+		k3s.disk=*) K3S_DISK=${w#k3s.disk=} ;;
 		docker.timeout=*) DOCKER_TIMEOUT=${w#docker.timeout=} ;;
 		docker.storage=*) DOCKER_STORAGE=${w#docker.storage=} ;;
 		disk.dev=*) DISK_DEV=${w#disk.dev=} ;;
@@ -1073,6 +1079,88 @@ k3s_phase_fail() {
 	fi
 }
 
+# ------------------------------------------------------- K3s state on disk --
+# k3s.disk=1: the two directories K3s writes at run time, agent/ (containerd's
+# content store and snapshots, the kubelet) and server/ (the datastore, the
+# certificates), are bind-mounted from a filesystem on disk.dev. data/, the
+# unpacked k3s tree the image ships and K3S_BIN points into, stays on the
+# root; --data-dir is unchanged.
+#
+# The airgap tars ship under agent/images, so they are moved onto the disk
+# before the bind mount would hide them. Moving rather than copying also gives
+# their RAM back to the tmpfs root.
+#
+# This does not save RAM on the host. Under the Xen setup the disk image sits
+# on a dom0 tmpfs, so the bytes move from the guest to dom0. What it shows is
+# containerd and the datastore writing through the block frontend.
+k3s_disk_evidence() {
+	say "k3s.disk: $1: disk $(df -h "$DISK_MNT" 2>/dev/null | awk 'NR==2 {print $3" used of "$2}'), \
+rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
+	say "k3s.disk: $1: du $(du -sh "$DISK_MNT/agent" "$DISK_MNT/server" 2>/dev/null |
+		awk '{printf "%s %s  ", $2, $1}')"
+}
+
+setup_k3s_disk() {
+	[ "$K3S_DISK" = 1 ] || return 0
+	say "k3s.disk: moving K3s state to $DISK_DEV"
+	if [ ! -b "$DISK_DEV" ]; then
+		k3s_fail "k3s.disk=1 but there is no block device at $DISK_DEV"
+		return 1
+	fi
+	# The disk test, when it ran, left its own filesystem on the device and
+	# unmounted it. Start from a fresh one either way. ext2 through the ext4
+	# driver, as in the disk test: the image has no e2fsprogs.
+	if ! timeout "$DISK_TIMEOUT" busybox mke2fs -q "$DISK_DEV" >/dev/null 2>&1; then
+		k3s_fail "k3s.disk=1: busybox mke2fs on $DISK_DEV failed"
+		return 1
+	fi
+	mkdir -p "$DISK_MNT"
+	if ! mount -t ext4 "$DISK_DEV" "$DISK_MNT" 2>/dev/null; then
+		k3s_fail "k3s.disk=1: could not mount $DISK_DEV at $DISK_MNT"
+		return 1
+	fi
+	say "k3s.disk: $DISK_DEV ($(blockdev --getsize64 "$DISK_DEV" 2>/dev/null) bytes) mounted at $DISK_MNT"
+
+	# containerd's overlayfs snapshotter needs an upper directory on this
+	# filesystem. Probe it here so a refusal is named rather than read out of
+	# the k3s log later. Not fatal: the log shows what K3s does about it.
+	local d=$DISK_MNT/.ovl-probe
+	mkdir -p $d/lower $d/upper $d/work $d/merged
+	if mount -t overlay overlay \
+		-o "lowerdir=$d/lower,upperdir=$d/upper,workdir=$d/work" $d/merged 2>/dev/null; then
+		umount $d/merged
+		say "k3s.disk: overlayfs with its upper dir on $DISK_DEV: ok"
+	else
+		say "k3s.disk: WARNING overlayfs refuses an upper dir on $DISK_DEV"
+	fi
+	rm -rf $d
+
+	local sub t0 t1
+	mkdir -p "$DISK_MNT/agent" "$DISK_MNT/server" "$K3S_DATA/agent" "$K3S_DATA/server"
+	t0=$(date +%s)
+	if [ -n "$(ls -A "$K3S_DATA/agent" 2>/dev/null)" ] &&
+		! mv "$K3S_DATA/agent"/* "$DISK_MNT/agent/" 2>/dev/null; then
+		k3s_fail "k3s.disk=1: could not move $K3S_DATA/agent onto $DISK_DEV"
+		return 1
+	fi
+	t1=$(date +%s)
+	say "k3s.disk: moved the shipped agent/ contents ($(du -sh "$DISK_MNT/agent" 2>/dev/null | cut -f1)) in $((t1 - t0))s"
+	for sub in agent server; do
+		if ! mount --bind "$DISK_MNT/$sub" "$K3S_DATA/$sub" 2>/dev/null; then
+			k3s_fail "k3s.disk=1: could not bind-mount $DISK_MNT/$sub on $K3S_DATA/$sub"
+			return 1
+		fi
+	done
+	# Read back from /proc/mounts, not assumed from mount's exit code.
+	say "k3s.disk: $(awk -v d="$K3S_DATA" '$2 == d"/agent" || $2 == d"/server" {printf "%s on %s (%s)  ", $1, $2, $3}' /proc/mounts)"
+	if [ ! -f "$HELLO_TAR" ]; then
+		k3s_fail "k3s.disk=1: $HELLO_TAR is not visible through the bind mount"
+		return 1
+	fi
+	k3s_disk_evidence "before k3s"
+	return 0
+}
+
 test_k3s() {
 	if [ "$K3S_ROLE" = agent ]; then
 		test_k3s_agent
@@ -1085,6 +1173,7 @@ test_k3s() {
 		return 1
 	}
 	say "k3s: $("$K3S_BIN/k3s" --version 2>&1 | head -1)"
+	setup_k3s_disk || return 1
 	say "k3s: airgap images present: $(ls "$IMAGES_DIR" 2>/dev/null | tr '\n' ' ')"
 
 	K3S_DISABLE="traefik,servicelb,metrics-server"
@@ -1113,6 +1202,8 @@ test_k3s() {
 		[ -n "$l" ] && say "k3s: | ${l:0:180}"
 		say "k3s: | mem $(awk '/MemAvailable/ {printf "%dM available", $2/1024}' /proc/meminfo), \
 rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
+		[ "$K3S_DISK" = 1 ] &&
+			say "k3s: | disk $(df -h "$DISK_MNT" 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 	}
 
 	local rc
@@ -1131,6 +1222,7 @@ rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 		return 1
 	fi
 	progress_extra() { :; }
+	[ "$K3S_DISK" = 1 ] && k3s_disk_evidence "node Ready"
 	# containerd has imported the airgap tars by the time the node is Ready, so
 	# the tars themselves are now a second copy of the same layers in tmpfs.
 	if [ "$KEEP" != 1 ]; then
@@ -1206,6 +1298,7 @@ rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 	else
 		K3S_RESULT=ok
 	fi
+	[ "$K3S_DISK" = 1 ] && k3s_disk_evidence "at K3S_OK"
 	marker K3S_OK
 	memline "after k3s"
 	stop_k3s
@@ -1247,6 +1340,7 @@ test_k3s_agent() {
 		return 1
 	fi
 	say "k3s: $("$K3S_BIN/k3s" --version 2>&1 | head -1)"
+	setup_k3s_disk || return 1
 	mkdir -p /var/log
 	K3S_PATH="$K3S_BIN:$PATH:$K3S_BIN/aux"
 	: >/var/log/k3s.log
@@ -1314,6 +1408,7 @@ test_k3s_agent() {
 		sleep 10
 	done
 	K3S_RESULT="ok (agent $K3S_NODENAME)"
+	[ "$K3S_DISK" = 1 ] && k3s_disk_evidence "at K3S_OK"
 	marker K3S_OK
 	memline "after k3s"
 	stop_k3s
