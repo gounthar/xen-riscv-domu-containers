@@ -1,0 +1,24 @@
+# Modelled on the unit the upstream K3s install script writes. The binary is
+# the pre-extracted multicall one, so PATH carries the bin and aux dirs that
+# the self-extracting wrapper would otherwise add.
+[Unit]
+Description=Lightweight Kubernetes
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+Environment=PATH=/var/lib/rancher/k3s/data/current/bin:/var/lib/rancher/k3s/data/current/bin/aux:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/var/lib/rancher/k3s/data/current/bin/k3s server --disable traefik,servicelb,metrics-server --write-kubeconfig-mode 644 --kubelet-arg=eviction-hard=memory.available<32Mi,nodefs.available<2%,imagefs.available<2%
+KillMode=process
+Delegate=yes
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+TimeoutStartSec=0
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

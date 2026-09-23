@@ -1,0 +1,124 @@
+#!/bin/bash
+# Prints what a kubelet on this guest reports as its identity, next to the
+# sources it could have taken it from, then powers the guest off.
+#
+# Markers (greppable in the dom0 console log):
+#   DISTRO_PROBE_START
+#   PROBE: <key>=<value>              one line per value that matters
+#   DISTRO_PROBE_FAIL: <reason>       node never registered within the budget
+#   DISTRO_PROBE_END
+#
+# Budgets can be set on the kernel command line: probe.regtimeout=SEC (node
+# registered, default 3600) and probe.readytimeout=SEC (node Ready, default
+# 1800). The identity fields are filled at registration, so Ready is only
+# waited for to show the values do not change once the node is up.
+
+export PATH=/var/lib/rancher/k3s/data/current/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+REG_TIMEOUT=3600
+READY_TIMEOUT=1800
+for w in $(cat /proc/cmdline); do
+	case "$w" in
+	probe.regtimeout=*) REG_TIMEOUT=${w#*=} ;;
+	probe.readytimeout=*) READY_TIMEOUT=${w#*=} ;;
+	esac
+done
+
+up() { cut -d. -f1 /proc/uptime; }
+say() { printf '[%6ss] %s\n' "$(up)" "$*"; }
+val() { printf 'PROBE: %s=%s\n' "$1" "$2"; }
+show() {
+	local f=$1
+	if [ -L "$f" ]; then
+		val "$f" "symlink -> $(readlink "$f")"
+	elif [ -e "$f" ]; then
+		val "$f" "[$(tr '\0\n' '  ' <"$f")]"
+	else
+		val "$f" absent
+	fi
+}
+kc() { kubectl "$@" 2>/dev/null; }
+
+echo DISTRO_PROBE_START
+say "--- system"
+val os "$(. /etc/os-release && echo "$PRETTY_NAME")"
+val pid1 "$(cat /proc/1/comm) $(readlink /proc/1/exe)"
+val systemd "$(systemctl --version | head -1)"
+val detect-virt "$(systemd-detect-virt 2>&1)"
+val detect-virt-container "$(systemd-detect-virt -c 2>&1)"
+val root "$(findmnt -n -o SOURCE,FSTYPE,OPTIONS /)"
+val kernel "$(uname -r) $(uname -m)"
+
+say "--- identity sources"
+show /etc/machine-id
+val machine-id-bytes "$(wc -c </etc/machine-id 2>/dev/null)"
+show /var/lib/dbus/machine-id
+show /run/machine-id
+show /sys/hypervisor/uuid
+show /sys/hypervisor/type
+show /sys/class/dmi/id/product_uuid
+show /proc/device-tree/vm,uuid
+show /proc/device-tree/system-id
+show /proc/device-tree/hypervisor/compatible
+show /proc/sys/kernel/random/boot_id
+val hostname "$(hostname)"
+say "systemd's own account of where the machine ID came from:"
+journalctl -b -o short-monotonic --no-pager 2>/dev/null |
+	grep -i -E 'machine id|machine-id|first boot' | head -20
+
+say "--- waiting for the node to register (budget ${REG_TIMEOUT}s)"
+t0=$(up)
+last=0
+until [ -n "$(kc get nodes -o name)" ]; do
+	el=$(($(up) - t0))
+	if [ "$el" -ge "$REG_TIMEOUT" ]; then
+		echo "DISTRO_PROBE_FAIL: no node registered after ${el}s"
+		systemctl status k3s --no-pager 2>&1 | head -20
+		journalctl -u k3s -b --no-pager 2>/dev/null | tail -60
+		echo DISTRO_PROBE_END
+		systemctl --force poweroff
+		exit 1
+	fi
+	if [ $((el - last)) -ge 120 ]; then
+		last=$el
+		say "still waiting (${el}s): k3s $(systemctl is-active k3s); \
+$(journalctl -u k3s -b -n 1 -o cat --no-pager 2>/dev/null | cut -c1-140)"
+	fi
+	sleep 20
+done
+say "node registered after $(($(up) - t0))s"
+
+dump_node() {
+	local when=$1
+	say "--- node as the API server has it ($when)"
+	val "$when.name" "$(kc get nodes -o jsonpath='{.items[0].metadata.name}')"
+	val "$when.providerID" "[$(kc get nodes -o jsonpath='{.items[0].spec.providerID}')]"
+	val "$when.nodeInfo.systemUUID" "$(kc get nodes -o jsonpath='{.items[0].status.nodeInfo.systemUUID}')"
+	val "$when.nodeInfo.machineID" "$(kc get nodes -o jsonpath='{.items[0].status.nodeInfo.machineID}')"
+	val "$when.nodeInfo.bootID" "$(kc get nodes -o jsonpath='{.items[0].status.nodeInfo.bootID}')"
+	val "$when.nodeInfo" "$(kc get nodes -o jsonpath='{.items[0].status.nodeInfo}')"
+	val "$when.addresses" "$(kc get nodes -o jsonpath='{.items[0].status.addresses}')"
+	val "$when.labels" "$(kc get nodes -o jsonpath='{.items[0].metadata.labels}')"
+	val "$when.annotations" "$(kc get nodes -o jsonpath='{.items[0].metadata.annotations}')"
+}
+dump_node registered
+
+say "--- waiting for Ready (budget ${READY_TIMEOUT}s)"
+t1=$(up)
+until kc get nodes -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' |
+	grep -qx True; do
+	[ $(($(up) - t1)) -ge "$READY_TIMEOUT" ] && { say "not Ready after ${READY_TIMEOUT}s"; break; }
+	sleep 30
+done
+val ready "$(kc get nodes -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}') after $(($(up) - t1))s"
+dump_node final
+
+say "--- kubelet and K3s log lines about identity"
+journalctl -u k3s -b -o cat --no-pager 2>/dev/null |
+	grep -i -E 'uuid|machine-id|machineid|product_uuid|provider|system-id|dmi' | cut -c1-300 | head -40
+say "--- identity sources again (unchanged?)"
+show /etc/machine-id
+show /sys/hypervisor/uuid
+kc get nodes -o wide
+echo DISTRO_PROBE_END
+systemctl --force poweroff
