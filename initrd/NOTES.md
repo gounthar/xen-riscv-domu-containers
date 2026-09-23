@@ -1133,7 +1133,24 @@ bind-mounts `agent/` and `server/` from it. `data/` stays where it is. Any
 failure in that sequence is `K3S_FAIL`. It logs `df` of the disk and the root
 and a `du` of both directories before K3s starts, at node Ready and at
 `K3S_OK`, which is where the sizing in `REPLICATION.md` comes from: 38M, about
-80M, then 159M, with `agent/` 153M of it.
+80M, then 159M, with `agent/` 153M of it. The 159M holds only while CoreDNS runs
+on the node with the disk: in two-node run 64 the scheduler put CoreDNS on the
+agent (tmpfs) and the server's disk read 90M at `K3S_OK`.
+
+At `K3S_OK` the server also prints where every pod is scheduled, one line per
+pod and a per-node count, all prefixed `PODS:` so they grep out of the serial
+log (`grep 'PODS: at K3S_OK'`):
+
+```
+PODS: at K3S_OK: kube-system/coredns-577d995dff-7dnjw Running on domu2
+PODS: at K3S_OK: default/payload-test Succeeded on domu2
+PODS: at K3S_OK: per node: domu=1 domu2=2
+```
+
+That is how to tell a disk figure like run 64's from a regression. It is taken
+with or without `k3s.disk=1`; the agent prints none, having no admin
+kubeconfig. The lines above are the format, from a stubbed `kubectl`, not a
+boot.
 
 Rejected on the way: `--data-dir` on the disk, which would need `data/` copied
 out of the initrd as well, and bind-mounting only `agent/containerd`, which

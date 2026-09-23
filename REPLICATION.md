@@ -342,7 +342,7 @@ and harmless.
 | `net.gw=IP` | 10.0.2.2 | gateway for the default route |
 | `disk.dev=PATH` | `/dev/xvda` | block device for the disk test |
 | `disk.timeout=SEC` | | budget for the disk test |
-| `k3s.disk=1` | off | K3s `agent/` and `server/` on `disk.dev` (reformatted) instead of the tmpfs root; needs more than the 64 MiB disk: run 52 used 159M of a 512 MiB one at K3S_OK |
+| `k3s.disk=1` | off | K3s `agent/` and `server/` on `disk.dev` (reformatted) instead of the tmpfs root; needs more than the 64 MiB disk: run 52 used 159M of a 512 MiB one at K3S_OK, with CoreDNS on the server; see the sizing table for the case where it is not |
 | `k3s.role=server\|agent` | `server` | `agent` joins an existing server instead of running the test; see "Two domUs, one cluster" |
 | `k3s.server=URL` | | agent only: the server to join, e.g. `https://192.168.128.2:6443` |
 | `k3s.token=TOKEN` | | join token, passed to both roles when set |
@@ -439,8 +439,16 @@ points of every run:
 | node Ready | 80-82M | 75-76M | 5.1-5.9M | 290M |
 | `K3S_OK` | 159M | 153M | 5.9-6.3M | 292M |
 
-The first and last rows are identical to the megabyte in every passing run below; the
-ranges are the spread across them:
+The `K3S_OK` row assumes CoreDNS runs on the node whose state is on the disk. That is always
+true with one domU, and was true in every two-domU run except run 64, where the scheduler put
+CoreDNS on the agent (tmpfs) and the server's disk read **90M** at `K3S_OK` (`agent/` 84M,
+`server/` 6.2M). The missing 69M turned up in the agent's tmpfs instead. Run 64's log shows
+CoreDNS running on the agent, but not where every pod ran, so CoreDNS being the whole
+difference is inferred; since then the server prints a `PODS:` line per pod at `K3S_OK` (see
+`initrd/NOTES.md`), which settles it for any later run. Size a two-domU disk for the 159M case.
+
+Apart from that run, the first and last rows are identical to the megabyte in every passing
+run below; the ranges are the spread across them:
 
 | what | runs | result |
 |---|---|---|
@@ -458,7 +466,7 @@ reformats it again afterwards, so the two do not share anything.
 **This does not save RAM under Xen.** The disk image is a file on dom0's tmpfs. After the
 guest powered off, that file held 183204, 182876, 183744 and 183676 KiB (runs 53, 54, 56, 58), about 179
 MiB, while the guest's root grew by only 2M. The image is sparse, so that is what the guest
-wrote to it; it is more than the 159M in use at the end, probably because blocks the guest
+wrote to it; it is more than the 159M in use at the end (CoreDNS on the server in all four), probably because blocks the guest
 freed stay allocated in the file (not checked). The state moved from guest RAM to dom0 RAM. On a
 host with a real disk behind the backend it would move to disk; that has not been run.
 
