@@ -21,6 +21,8 @@
 #
 # Kernel command line options (see NOTES.md):
 #   test=all|docker|k3s|disk  which tests to run (default: all, disk first)
+#   test=identity         run no test: print DMI, device tree, /sys/hypervisor,
+#                         machine-id and block device names, then power off
 #   debug=1               drop to a shell instead of powering off
 #   keep=1                do not delete the unused stack to free RAM
 #   k3s.full=1            keep traefik, servicelb and metrics-server enabled
@@ -1447,6 +1449,74 @@ test_ping() {
 	return 0
 }
 
+# ----------------------------------------------------------- identity probe --
+# test=identity: print what the guest can see of its own identity and of its
+# disk's name, then power off. No test runs. Kubernetes tooling maps a node to
+# its VM from these: kubelet's SystemUUID comes from DMI product_uuid when there
+# is one, and a CSI driver mounts the disk by the name the guest gave it. Runs
+# before setup_system, so /etc/machine-id is printed as the image shipped it.
+id_cat() {
+	local f=$1
+	if [ -e "$f" ]; then
+		printf '%s: [%s]\n' "$f" "$(tr '\0' ' ' <"$f" 2>&1)"
+	else
+		printf '%s: absent\n' "$f"
+	fi
+}
+
+probe_identity() {
+	local f n=0
+	marker IDENTITY_START
+	# blkfront attaches through xenbus after init has started; give it time
+	# rather than report a missing disk that was only late.
+	while [ $n -lt 60 ] && ! ls /sys/block/ 2>/dev/null | grep -q -E '^(xvd|vd|sd)'; do
+		sleep 1
+		n=$((n + 1))
+	done
+	say "identity: waited ${n}s for a block device"
+
+	say "--- ID: uname ---"
+	uname -a
+	say "--- ID: dmi ---"
+	ls -la /sys/class/dmi/id/ 2>&1
+	for f in product_uuid product_name product_serial sys_vendor \
+		board_vendor board_name chassis_asset_tag; do
+		id_cat "/sys/class/dmi/id/$f"
+	done
+	ls -la /sys/firmware/ 2>&1
+	say "--- ID: device-tree ---"
+	ls /proc/device-tree/ 2>&1
+	for f in model compatible vm,uuid system-id hypervisor/compatible; do
+		id_cat "/proc/device-tree/$f"
+	done
+	ls /proc/device-tree/hypervisor/ 2>&1
+	say "device-tree names matching uuid:"
+	find /proc/device-tree/ -iname '*uuid*' 2>&1
+	say "--- ID: sys-hypervisor ---"
+	ls -la /sys/hypervisor/ 2>&1
+	for f in uuid type; do
+		id_cat "/sys/hypervisor/$f"
+	done
+	find /sys/hypervisor/ -maxdepth 2 2>&1 | head -40
+	say "--- ID: machine-id ---"
+	id_cat /etc/machine-id
+	say "/etc/machine-id bytes: $(wc -c </etc/machine-id 2>/dev/null)"
+	say "--- ID: xenbus ---"
+	ls /sys/bus/xen/devices/ 2>&1
+	for f in /sys/bus/xen/devices/*; do
+		[ -d "$f" ] || continue
+		id_cat "$f/nodename"
+		id_cat "$f/devtype"
+	done
+	ls -la /dev/xen/ /proc/xen/ 2>&1
+	say "--- ID: block ---"
+	ls -l /sys/block/ /dev/xvd* /dev/vd* 2>&1
+	cat /proc/partitions
+	say "--- ID: dmesg ---"
+	dmesg 2>/dev/null | grep -i -E 'blkfront|xvd|dmi|smbios|xen' | head -40
+	marker IDENTITY_END
+}
+
 # ------------------------------------------------------------------- finish --
 fallback_shell() {
 	say "dropping to a shell on the console; exit to retry"
@@ -1543,6 +1613,10 @@ stage2() {
 	[ "$QUIET_KERNEL" = 1 ] && dmesg -n 4 2>/dev/null
 	say "stage 2: root is $(awk '$2=="/" {print $3; exit}' /proc/mounts), test=$TEST"
 	rootfs_line "real root"
+	if [ "$TEST" = identity ]; then
+		probe_identity
+		finish
+	fi
 	select_tests
 	setup_system
 	setup_network
