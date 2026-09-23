@@ -327,6 +327,7 @@ and harmless.
 | option | default | meaning |
 |---|---|---|
 | `test=all\|docker\|k3s\|disk` | `all` | which tests to run |
+| `test=identity` | | run no test: print what the guest exposes for node identity and its disk names, then power off; see "Node identity and disk name" |
 | `debug=1` | off | drop to a shell instead of powering off, including after a failure |
 | `keep=1` | off | do not delete the unused stack or the imported image tars |
 | `k3s.full=1` | off | do not disable traefik, servicelb and metrics-server |
@@ -464,6 +465,47 @@ host with a real disk behind the backend it would move to disk; that has not bee
 Nothing here tests that the state survives a restart: a domU cannot be destroyed or rebooted
 on riscv yet (see below), and every run starts from a freshly formatted disk.
 
+## Node identity and disk name (`test=identity`)
+
+Kubernetes tooling that maps a node to its VM reads two things from inside the guest: kubelet's
+`SystemUUID`, which comes from the DMI `product_uuid` when there is one, and the block device
+name a CSI driver mounts. `test=identity` prints what the guest has of both and runs no test:
+`/sys/class/dmi/id`, the device-tree root, `model`, `compatible`, `vm,uuid`, `system-id` and the
+`hypervisor` node, any device-tree name containing `uuid`, `/sys/hypervisor`, `/etc/machine-id`,
+the xenbus devices, and the block devices, each under a `--- ID: <name> ---` header between
+`IDENTITY_START` and `IDENTITY_END`. It waits up to 60 s for a `xvd`, `vd` or `sd` device first,
+because blkfront attaches after `/init` has started. It runs before `setup_system`, so
+`/etc/machine-id` is shown as the image shipped it, before `/init` generates one.
+
+It is on branch `feat/identity-probe` and needs a payload built from it. In a `domu.cfg` whose
+`extra` has `test=all`, it is one edit in dom0 before `xl create`:
+
+```
+sed -i 's/test=all/test=identity/' /domu/domu.cfg
+```
+
+Run 67 (fedora1, QEMU TCG, dom0 plus `xl create`, one vCPU, one `phy` disk with `vdev=xvda`):
+
+| read in the guest | value |
+|---|---|
+| kernel boot | `DMI not present or invalid.` |
+| `/sys/class/dmi/id/` | does not exist |
+| `/proc/device-tree/vm,uuid`, `system-id` | absent; no node named like a uuid |
+| `/proc/device-tree/model`, `compatible` | `XENVM-4.18`, `xen,xenvm-4.18 xen,xenvm` |
+| `/sys/hypervisor/type`, `uuid` | `xen`, `c7c38be3-8988-4b8d-b3ce-3459bca9c9b2`, which is the domain UUID `xl list -v` shows in dom0 |
+| `/etc/machine-id` | absent (the busybox image ships none) |
+| xenbus devices | `vbd-51712`, `vif-0` |
+| block device | `/dev/xvda` (202,0), from blkfront: the name `vdev=` asked for |
+
+So a riscv64 domU has **no SMBIOS UUID**, and its Xen UUID is available at
+`/sys/hypervisor/uuid`. On an x86 HVM guest created by XAPI the SMBIOS `product_uuid`, the same
+`/sys/hypervisor/uuid` and the VM UUID are all equal, and XAPI's `VBD.device` equals the guest's
+disk name (measured separately, one BIOS HVM guest on XCP-ng 8.3). What a kubelet would report
+as `SystemUUID` on the riscv guest was not tested. cadvisor's source falls back to
+`/etc/machine-id` when there is no DMI and no `vm,uuid` (read, not run), and the other test
+modes generate one, so it would be a value that is not the VM's UUID. Nothing here
+was created by XAPI, which does not exist for riscv.
+
 ## Markers
 
 Each on its own line, in this order:
@@ -471,6 +513,7 @@ Each on its own line, in this order:
 ```
 PAYLOAD_START
 PAYLOAD_FAIL: initrd truncated (<detail>)     (and then nothing else)
+IDENTITY_START ... IDENTITY_END                (test=identity only, and then nothing else)
 PING_OK: <ping summary>  or  PING_FAIL: <reason>   (only with net.ping=)
 DISK_OK          or  DISK_FAIL: <reason>      (skipped if there is no block device)
 DOCKER_OK        or  DOCKER_FAIL: <reason>
@@ -1131,6 +1174,8 @@ all is still untested.
 - **The domU that boots needs an experimental guest-kernel change** for the event-channel
   interrupt (above). No domU has booted on an unmodified guest kernel past that point.
 - **Nothing on riscv64 hardware.** All boots were TCG on x86_64.
+- **`test=identity` has run once**, on an `xl`-created domU with one cold-plugged disk. No
+  hot-plug, no second disk, no kubelet, and no XAPI-created guest.
 - **Two domUs need a third experimental change, in Xen.** A frame large enough to be
   grant-mapped between two guests reaches `page_get_owner_and_reference()`, an
   `assert_failed()` stub in `xen/arch/riscv/mm.c`, and the hypervisor stops. See "Two domUs,

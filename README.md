@@ -21,6 +21,11 @@
 >   grant-table changes. Nothing on hardware. See `REPLICATION.md`,
 >   "Notes for the dom0 and domU path".
 >
+> - It does not know `test=identity` (added 2026-09-23 as a row in the table
+>   below), which probes node identity and disk names instead of running a
+>   test. On a riscv64 Xen domU it found no DMI table and the domain UUID at
+>   `/sys/hypervisor/uuid` (run 67, TCG).
+>
 > Kept rather than deleted because the prose around those numbers is still
 > accurate and `REPLICATION.md` links into it.
 
@@ -117,6 +122,7 @@ on the kernel command line.
 | Option | Default | What it does |
 | --- | --- | --- |
 | `test=all\|docker\|k3s` | `all` | Which tests to run. `all` runs Docker first, then prunes the Docker stack and runs K3s. |
+| `test=identity` | | Run no test. Print DMI, the device tree, `/sys/hypervisor`, `/etc/machine-id` and the block device names between `IDENTITY_START` and `IDENTITY_END`, then power off. Branch `feat/identity-probe`; see `REPLICATION.md`, "Node identity and disk name". |
 | `debug=1` | off | Do not power off at the end; drop to a login shell on the console. Also implies `keep=1`. |
 | `keep=1` | off | Do not delete the unused stack between tests. Costs RAM, useful when poking around afterwards. |
 | `k3s.full=1` | off | Do not pass `--disable traefik,servicelb,metrics-server` to the K3s server. Only meaningful with `initrd-full.cpio.gz`, which carries those images; `/init` warns if they are missing. |
