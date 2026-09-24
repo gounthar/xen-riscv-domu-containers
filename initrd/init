@@ -1095,6 +1095,27 @@ k3s_phase_fail() {
 # This does not save RAM on the host. Under the Xen setup the disk image sits
 # on a dom0 tmpfs, so the bytes move from the guest to dom0. What it shows is
 # containerd and the datastore writing through the block frontend.
+# Where every pod is scheduled, printed by the server at K3S_OK. Run 64's
+# k3s.disk figure was 90M instead of 159M because CoreDNS had landed on the
+# agent (tmpfs) rather than the server (disk), and nothing in the log said so
+# directly. custom-columns rather than -o wide: the RESTARTS column of -o wide
+# can carry "(5m ago)" and shift every field after it.
+k3s_pod_placement() {
+	local pods
+	pods=$(kubectl_ get pods -A --no-headers -o \
+custom-columns=NS:.metadata.namespace,NAME:.metadata.name,PHASE:.status.phase,NODE:.spec.nodeName \
+		2>/dev/null)
+	if [ -z "$pods" ]; then
+		say "PODS: $1: kubectl returned no pods"
+		return
+	fi
+	printf '%s\n' "$pods" | while read -r ns name phase node; do
+		say "PODS: $1: $ns/$name $phase on $node"
+	done
+	say "PODS: $1: per node: $(printf '%s\n' "$pods" |
+		awk '{n[$4]++} END {for (k in n) printf "%s=%d ", k, n[k]}')"
+}
+
 k3s_disk_evidence() {
 	say "k3s.disk: $1: disk $(df -h "$DISK_MNT" 2>/dev/null | awk 'NR==2 {print $3" used of "$2}'), \
 rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
@@ -1301,6 +1322,7 @@ rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 		K3S_RESULT=ok
 	fi
 	[ "$K3S_DISK" = 1 ] && k3s_disk_evidence "at K3S_OK"
+	k3s_pod_placement "at K3S_OK"
 	marker K3S_OK
 	memline "after k3s"
 	stop_k3s
