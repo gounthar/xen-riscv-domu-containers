@@ -42,6 +42,11 @@
 #                         imported images, the datastore) on disk.dev instead
 #                         of the tmpfs root. The device is reformatted. If it
 #                         cannot be set up, K3S_FAIL: no silent tmpfs fallback
+#   k3s.reuse=1           with k3s.disk=1: keep K3s state across guest boots.
+#                         If disk.dev already holds state from an earlier boot
+#                         it is mounted as is, not reformatted; /etc/rancher/node
+#                         and a clock stamp live on it too, the disk test is
+#                         skipped, and RESTART: lines report the identities
 #   docker.timeout=SEC    budget for the Docker test (default 600)
 #   docker.storage=NAME   force a storage driver instead of probing
 #   disk.dev=PATH         block device for the disk test (default /dev/xvda)
@@ -84,6 +89,9 @@ K3S_NODES=1
 K3S_PODNODE=""
 K3S_AGENTHOLD=180
 K3S_DISK=0
+K3S_REUSE=0
+K3S_REUSED=0
+K3S_BOOT=1
 DOCKER_TIMEOUT=600
 DOCKER_STORAGE=auto
 DISK_DEV=/dev/xvda
@@ -314,6 +322,7 @@ parse_cmdline() {
 		k3s.podnode=*) K3S_PODNODE=${w#k3s.podnode=} ;;
 		k3s.agenthold=*) K3S_AGENTHOLD=${w#k3s.agenthold=} ;;
 		k3s.disk=*) K3S_DISK=${w#k3s.disk=} ;;
+		k3s.reuse=*) K3S_REUSE=${w#k3s.reuse=} ;;
 		docker.timeout=*) DOCKER_TIMEOUT=${w#docker.timeout=} ;;
 		docker.storage=*) DOCKER_STORAGE=${w#docker.storage=} ;;
 		disk.dev=*) DISK_DEV=${w#disk.dev=} ;;
@@ -1123,6 +1132,96 @@ rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 		awk '{printf "%s %s  ", $2, $1}')"
 }
 
+# k3s.reuse=1: what a machine with a disk root keeps across a reboot and this
+# payload otherwise loses with its tmpfs root. /etc/rancher/node holds the
+# node password the server checks the node against, and the clock stamp
+# stands in for an RTC: every boot starts at the build date, so without it
+# the second boot's clock would run behind the certificates and leases the
+# first one wrote.
+k3s_reuse_setup() {
+	local boot=1 saved now
+	if [ "$K3S_REUSED" = 1 ]; then
+		read -r boot <"$DISK_MNT/.k3s-reuse" 2>/dev/null
+		boot=$((boot + 1))
+		say "RESTART: $DISK_DEV holds K3s state from an earlier boot, not reformatted; this is boot $boot"
+	else
+		say "RESTART: no earlier K3s state on $DISK_DEV, formatted it; this is boot 1"
+	fi
+	K3S_BOOT=$boot
+	echo "$boot" >"$DISK_MNT/.k3s-reuse"
+	saved=$(cat "$DISK_MNT/.k3s-clock" 2>/dev/null)
+	now=$(date +%s)
+	if [ -n "$saved" ] && [ "$saved" -gt "$now" ] 2>/dev/null; then
+		date -s "@$((saved + 1))" >/dev/null 2>&1
+		say "RESTART: clock was $now, moved past the stamp the last boot saved ($saved): now $(date +%s)"
+	fi
+	mkdir -p "$DISK_MNT/rancher-node" /etc/rancher/node
+	if ! mount --bind "$DISK_MNT/rancher-node" /etc/rancher/node 2>/dev/null; then
+		k3s_fail "k3s.reuse=1: could not bind-mount /etc/rancher/node from $DISK_DEV"
+		return 1
+	fi
+	say "RESTART: /etc/rancher/node on $DISK_DEV holds: $(ls /etc/rancher/node | tr '\n' ' ')"
+}
+
+sum16() {
+	sha256sum "$1" 2>/dev/null | cut -c1-16
+}
+
+# The identities a restart should keep: the node object, the cluster CAs, the
+# node password, the pods, and a ConfigMap this test creates on the first boot.
+k3s_reuse_report() {
+	[ "$K3S_REUSE" = 1 ] || return 0
+	local n=$K3S_NODENAME ns name uid r c
+	say "RESTART: $1: boot $K3S_BOOT, node $n $(kubectl_ get node "$n" \
+-o jsonpath='uid={.metadata.uid} created={.metadata.creationTimestamp}' 2>/dev/null)"
+	say "RESTART: $1: node Ready heartbeat $(kubectl_ get node "$n" \
+-o jsonpath='{.status.conditions[?(@.type=="Ready")].lastHeartbeatTime}' 2>/dev/null), clock $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	say "RESTART: $1: sha256 server-ca $(sum16 "$K3S_DATA/server/tls/server-ca.crt") \
+client-ca $(sum16 "$K3S_DATA/server/tls/client-ca.crt") \
+node-password $(sum16 /etc/rancher/node/password)"
+	kubectl_ get pods -A --no-headers -o \
+custom-columns=NS:.metadata.namespace,NAME:.metadata.name,UID:.metadata.uid,R:.status.containerStatuses[0].restartCount,C:.metadata.creationTimestamp \
+		2>/dev/null | while read -r ns name uid r c; do
+		say "RESTART: $1: pod $ns/$name uid=$uid restarts=$r created=$c"
+	done
+	say "RESTART: $1: configmap restart-probe $(kubectl_ get configmap restart-probe -n default \
+-o jsonpath='uid={.metadata.uid} created={.metadata.creationTimestamp} data={.data}' 2>/dev/null)"
+}
+
+old_pod_gone() {
+	kubectl_ get pod payload-test -n default 2>&1 | grep -q NotFound
+}
+
+# After node Ready: create the ConfigMap on the first boot; on a later one,
+# report the test pod the earlier boot left and delete it, since its logs
+# were on the old tmpfs root and the pod test below would read them.
+k3s_reuse_mark() {
+	[ "$K3S_REUSE" = 1 ] || return 0
+	if ! kubectl_ get configmap restart-probe -n default >/dev/null 2>&1; then
+		if kubectl_ create configmap restart-probe -n default \
+			--from-literal=created-on-boot="$K3S_BOOT" \
+			--from-literal=token="$(cat /proc/sys/kernel/random/uuid)" >/dev/null 2>&1; then
+			say "RESTART: created configmap restart-probe on boot $K3S_BOOT"
+		else
+			say "RESTART: WARNING could not create configmap restart-probe"
+		fi
+	fi
+	if kubectl_ get pod payload-test -n default >/dev/null 2>&1; then
+		say "RESTART: payload-test left by an earlier boot: $(kubectl_ get pod payload-test -n default \
+-o jsonpath='uid={.metadata.uid} phase={.status.phase} created={.metadata.creationTimestamp}' 2>/dev/null)"
+		kubectl_ delete pod payload-test -n default --grace-period=0 --force --wait=false >/dev/null 2>&1
+		wait_until 300 "k3s old test pod deleted" old_pod_gone
+	fi
+}
+
+# After K3S_OK: leave the clock stamp for the next boot and flush the disk.
+k3s_reuse_close() {
+	[ "$K3S_REUSE" = 1 ] || return 0
+	date +%s >"$DISK_MNT/.k3s-clock"
+	sync
+	say "RESTART: saved clock stamp $(cat "$DISK_MNT/.k3s-clock") on $DISK_DEV, synced"
+}
+
 setup_k3s_disk() {
 	[ "$K3S_DISK" = 1 ] || return 0
 	say "k3s.disk: moving K3s state to $DISK_DEV"
@@ -1130,17 +1229,32 @@ setup_k3s_disk() {
 		k3s_fail "k3s.disk=1 but there is no block device at $DISK_DEV"
 		return 1
 	fi
-	# The disk test, when it ran, left its own filesystem on the device and
-	# unmounted it. Start from a fresh one either way. ext2 through the ext4
-	# driver, as in the disk test: the image has no e2fsprogs.
-	if ! timeout "$DISK_TIMEOUT" busybox mke2fs -q "$DISK_DEV" >/dev/null 2>&1; then
-		k3s_fail "k3s.disk=1: busybox mke2fs on $DISK_DEV failed"
-		return 1
-	fi
 	mkdir -p "$DISK_MNT"
-	if ! mount -t ext4 "$DISK_DEV" "$DISK_MNT" 2>/dev/null; then
-		k3s_fail "k3s.disk=1: could not mount $DISK_DEV at $DISK_MNT"
-		return 1
+	# k3s.reuse=1: a device carrying the stamp an earlier boot left is used as
+	# it is. Anything else, including a mount failure, gets a fresh filesystem.
+	K3S_REUSED=0
+	if [ "$K3S_REUSE" = 1 ] && mount -t ext4 "$DISK_DEV" "$DISK_MNT" 2>/dev/null; then
+		if [ -r "$DISK_MNT/.k3s-reuse" ]; then
+			K3S_REUSED=1
+		else
+			umount "$DISK_MNT" 2>/dev/null
+		fi
+	fi
+	if [ "$K3S_REUSED" = 0 ]; then
+		# The disk test, when it ran, left its own filesystem on the device and
+		# unmounted it. Start from a fresh one either way. ext2 through the ext4
+		# driver, as in the disk test: the image has no e2fsprogs.
+		if ! timeout "$DISK_TIMEOUT" busybox mke2fs -q "$DISK_DEV" >/dev/null 2>&1; then
+			k3s_fail "k3s.disk=1: busybox mke2fs on $DISK_DEV failed"
+			return 1
+		fi
+		if ! mount -t ext4 "$DISK_DEV" "$DISK_MNT" 2>/dev/null; then
+			k3s_fail "k3s.disk=1: could not mount $DISK_DEV at $DISK_MNT"
+			return 1
+		fi
+	fi
+	if [ "$K3S_REUSE" = 1 ]; then
+		k3s_reuse_setup || return 1
 	fi
 	say "k3s.disk: $DISK_DEV ($(blockdev --getsize64 "$DISK_DEV" 2>/dev/null) bytes) mounted at $DISK_MNT"
 
@@ -1161,7 +1275,16 @@ setup_k3s_disk() {
 	local sub t0 t1
 	mkdir -p "$DISK_MNT/agent" "$DISK_MNT/server" "$K3S_DATA/agent" "$K3S_DATA/server"
 	t0=$(date +%s)
-	if [ -n "$(ls -A "$K3S_DATA/agent" 2>/dev/null)" ] &&
+	if [ "$K3S_REUSED" = 1 ]; then
+		# The earlier boot's agent/images is still there (emptied by the
+		# prune), so mv would refuse to replace it. Merge instead.
+		if [ -n "$(ls -A "$K3S_DATA/agent" 2>/dev/null)" ] &&
+			! { cp -a "$K3S_DATA/agent/." "$DISK_MNT/agent/" &&
+				rm -rf "${K3S_DATA:?}/agent"/*; } 2>/dev/null; then
+			k3s_fail "k3s.reuse=1: could not merge $K3S_DATA/agent onto $DISK_DEV"
+			return 1
+		fi
+	elif [ -n "$(ls -A "$K3S_DATA/agent" 2>/dev/null)" ] &&
 		! mv "$K3S_DATA/agent"/* "$DISK_MNT/agent/" 2>/dev/null; then
 		k3s_fail "k3s.disk=1: could not move $K3S_DATA/agent onto $DISK_DEV"
 		return 1
@@ -1246,6 +1369,8 @@ rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 	fi
 	progress_extra() { :; }
 	[ "$K3S_DISK" = 1 ] && k3s_disk_evidence "node Ready"
+	k3s_reuse_report "node Ready"
+	k3s_reuse_mark
 	# containerd has imported the airgap tars by the time the node is Ready, so
 	# the tars themselves are now a second copy of the same layers in tmpfs.
 	if [ "$KEEP" != 1 ]; then
@@ -1323,9 +1448,11 @@ rootfs $(df -h / 2>/dev/null | awk 'NR==2 {print $3" used of "$2}')"
 	fi
 	[ "$K3S_DISK" = 1 ] && k3s_disk_evidence "at K3S_OK"
 	k3s_pod_placement "at K3S_OK"
+	k3s_reuse_report "at K3S_OK"
 	marker K3S_OK
 	memline "after k3s"
 	stop_k3s
+	k3s_reuse_close
 	return 0
 }
 
@@ -1640,6 +1767,11 @@ stage2() {
 		finish
 	fi
 	select_tests
+	if [ "$K3S_REUSE" = 1 ] && [ "$RUN_DISK" = 1 ]; then
+		RUN_DISK=0
+		DISK_RESULT="skipped: k3s.reuse=1 keeps the device"
+		say "payload: k3s.reuse=1, skipping the disk test, which would reformat $DISK_DEV"
+	fi
 	setup_system
 	setup_network
 	test_ping
