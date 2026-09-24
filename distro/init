@@ -1,0 +1,54 @@
+#!/bin/busybox sh
+# /init for the distro-root installer initramfs.
+#
+# The domU has one PV disk and dom0 hands it over empty (a sparse file), so
+# this initramfs carries a Debian trixie root as a tarball: it formats the
+# disk, unpacks the root onto it and switches to it, with systemd as PID 1.
+# From then on the guest is an ordinary systemd distro booted from /dev/xvda;
+# the only difference from an installed image is that this is its first boot,
+# which is also the state a cloud image is in when it first starts.
+#
+#   root=DEV   the disk to install to (default /dev/xvda)
+#
+# Markers: DISTRO_INIT_START, DISTRO_INIT_FAIL: <reason>, DISTRO_INIT_SWITCH
+
+/bin/busybox --install -s /bin
+export PATH=/bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+say() { echo "[distro-init $(cut -d' ' -f1 /proc/uptime)] $*"; }
+fail() {
+	echo "DISTRO_INIT_FAIL: $*"
+	poweroff -f
+	sleep 30
+}
+
+echo DISTRO_INIT_START
+ROOT=/dev/xvda
+for w in $(cat /proc/cmdline); do
+	case "$w" in root=*) ROOT=${w#root=} ;; esac
+done
+
+# blkfront attaches through xenbus after init has started.
+n=0
+while [ ! -b "$ROOT" ] && [ $n -lt 120 ]; do sleep 1; n=$((n + 1)); done
+[ -b "$ROOT" ] || fail "$ROOT did not appear in ${n}s"
+say "$ROOT present after ${n}s, $(($(cat /sys/class/block/${ROOT##*/}/size) / 2048)) MiB"
+
+# busybox mke2fs writes ext2; the kernel's ext4 driver mounts it.
+mke2fs -L distroroot "$ROOT" >/dev/null || fail "mke2fs $ROOT"
+mkdir -p /newroot
+mount -t ext4 "$ROOT" /newroot || fail "mount $ROOT"
+say "unpacking the root onto $ROOT"
+gunzip -c /root.tar.gz | tar -x -C /newroot || fail "unpacking the root"
+rm -f /root.tar.gz
+[ -x /newroot/usr/lib/systemd/systemd ] || fail "no systemd in the unpacked root"
+say "root: $(df -m /newroot | awk 'NR==2 {print $3 " MiB used of " $2}')"
+say "machine-id as shipped: $(wc -c </newroot/etc/machine-id) bytes"
+
+umount /proc /sys /dev
+echo DISTRO_INIT_SWITCH
+exec switch_root /newroot /sbin/init
+fail "switch_root returned"

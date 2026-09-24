@@ -1,0 +1,18 @@
+# Not ordered after k3s.service: K3s is Type=notify with no start timeout, so
+# a server that never notifies would hold the probe back forever and the run
+# would end in silence. The probe polls the API itself and has its own budget.
+[Unit]
+Description=Node identity probe (prints to the console, then powers off)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/identity-probe
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/console
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

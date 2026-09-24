@@ -1,0 +1,3 @@
+# The installer initramfs mounts this device before switching to it, so
+# systemd only remounts it. No fsck pass: it is already mounted read-write.
+/dev/xvda  /  ext4  rw,relatime  0  0

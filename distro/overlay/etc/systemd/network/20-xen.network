@@ -1,0 +1,8 @@
+# The xl config puts this guest's vif on dom0's xenbr0 (192.168.128.1).
+[Match]
+Type=ether
+
+[Network]
+Address=192.168.128.2/24
+Gateway=192.168.128.1
+DNS=192.168.128.1
