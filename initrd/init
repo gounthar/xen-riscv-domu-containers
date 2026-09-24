@@ -1762,6 +1762,8 @@ stage2() {
 	[ "$QUIET_KERNEL" = 1 ] && dmesg -n 4 2>/dev/null
 	say "stage 2: root is $(awk '$2=="/" {print $3; exit}' /proc/mounts), test=$TEST"
 	rootfs_line "real root"
+	say "cpus: nproc $(nproc 2>/dev/null), online $(cat /sys/devices/system/cpu/online 2>/dev/null), \
+cpuinfo processors $(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
 	if [ "$TEST" = identity ]; then
 		probe_identity
 		finish
